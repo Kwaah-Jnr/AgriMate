@@ -3,13 +3,14 @@ const bcrypt = require("bcryptjs");
 
 // Logic to register a new user
 const registerUser = async (req, res) => {
-  const { full_name, username, email, phone, phone_number, region, password, pin, role } = req.body;
+  const { full_name, username, email, phone, phone_number, region, password, pin, role, vehicle_number, vehicleNumber } = req.body;
 
   const usernameVal = full_name || username;
   const emailVal = email;
   const phoneVal = phone || phone_number;
   const passwordVal = password || pin;
   const roleVal = role ? String(role).trim().toLowerCase() : 'farmer';
+  const vehicleNumVal = vehicle_number || vehicleNumber || null;
 
   if (!usernameVal || !emailVal || !passwordVal) {
     return res.status(400).json({ error: "Username/Full name, email, and password/pin are required fields." });
@@ -29,8 +30,8 @@ const registerUser = async (req, res) => {
 
     // 2. Insert User into the users table
     const newUser = await client.query(
-      "INSERT INTO users (username, phone_number, email, pin, region) VALUES ($1, $2, $3, $4, $5) RETURNING user_id, username, email, phone_number, region",
-      [usernameVal, phoneVal || null, emailVal, hashedPassword, region || null]
+      "INSERT INTO users (username, phone_number, email, pin, region, vehicle_number) VALUES ($1, $2, $3, $4, $5, $6) RETURNING user_id, username, email, phone_number, region, vehicle_number",
+      [usernameVal, phoneVal || null, emailVal, hashedPassword, region || null, vehicleNumVal]
     );
 
     const userId = newUser.rows[0].user_id;
@@ -52,7 +53,8 @@ const registerUser = async (req, res) => {
         email: newUser.rows[0].email,
         phone_number: newUser.rows[0].phone_number,
         region: newUser.rows[0].region,
-        role: roleVal
+        role: roleVal,
+        vehicleNumber: newUser.rows[0].vehicle_number
       },
     });
   } catch (err) {

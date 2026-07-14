@@ -263,37 +263,94 @@ exports.fundEscrow = async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // Verify order ownership and status
-    const check = await client.query("SELECT * FROM orders WHERE order_id = $1", [orderId]);
+    // Verify order ownership and status, and get farmer info
+    const check = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
     if (check.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Order not found." });
     }
-    if (check.rows[0].buyer_id !== buyerId) {
+    const order = check.rows[0];
+    if (order.buyer_id !== buyerId) {
       await client.query("ROLLBACK");
       return res.status(403).json({ error: "Forbidden. You do not own this order." });
     }
-    if (check.rows[0].status !== "accepted") {
+    if (order.status !== "accepted" && order.status !== "ready_for_pickup") {
       await client.query("ROLLBACK");
-      return res.status(400).json({ error: `You can only fund orders in 'accepted' status. Current: '${check.rows[0].status}'` });
+      return res.status(400).json({ error: `You can only fund orders in 'accepted' or 'ready_for_pickup' status. Current: '${order.status}'` });
     }
 
-    // 1. Update order status
-    await client.query("UPDATE orders SET status = 'escrow_funded', updated_at = NOW() WHERE order_id = $1", [orderId]);
+    const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
 
-    // 2. Update payments table record
+    // 1. Update payments table record (confirm the lock)
     await client.query(
       `UPDATE payments 
-       SET transaction_id = $1, status = 'funded', confirmed_at = NOW() 
-       WHERE order_id = $2`,
-      [transaction_id, orderId]
+       SET status = 'confirmed', confirmed_at = NOW(), description = $1 
+       WHERE order_id = $2 AND type = 'escrow_lock'`,
+      [`Escrow funded via MoMo transaction ${transaction_id}.`, orderId]
     );
 
-    // 3. Log history
-    await logHistory(client, buyerId, "escrow_funded", orderId, `Funded escrow of ${check.rows[0].price * check.rows[0].quantity} GHS via transaction ${transaction_id}`);
+    // 2. Create a wallet_transactions record for the buyer's escrow funding
+    await client.query(
+      `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+       VALUES ($1, 'escrow', $2, 'success', $3)`,
+      [buyerId, orderTotal, `Escrow funded for order ID ${orderId} via transaction ${transaction_id}.`]
+    );
+
+    // 3. Log history for the funding
+    await logHistory(client, buyerId, "escrow_funded", orderId, `Funded escrow of ${orderTotal} GHS via transaction ${transaction_id}`);
+
+    // Check if order is already fulfilled / ready_for_pickup
+    let finalEscrowStatus = 'funded';
+    if (order.status === 'ready_for_pickup') {
+      const releaseAmount = orderTotal * 0.5;
+
+      // Update farmer wallet (release 50%)
+      const farmerWallet = await getOrCreateWallet(client, order.farmer_id);
+      const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - releaseAmount);
+      const newFarmerBalance = parseFloat(farmerWallet.balance) + releaseAmount;
+      await client.query(
+        "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
+        [newFarmerBalance, newFarmerEscrow, order.farmer_id]
+      );
+
+      // Update order status to ready_for_pickup with half_released escrow
+      await client.query(
+        "UPDATE orders SET escrow_status = 'half_released', updated_at = NOW() WHERE order_id = $1",
+        [orderId]
+      );
+
+      // Create release payments record
+      await client.query(
+        `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+         VALUES ($1, $2, $3, 'release', 'confirmed', $4)`,
+        [orderId, buyerId, releaseAmount, `50% escrow released on funding (order was already fulfilled).`]
+      );
+
+      // Create wallet transaction record for the farmer's release
+      await client.query(
+        `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+         VALUES ($1, 'escrow', $2, 'success', $3)`,
+        [order.farmer_id, releaseAmount, `50% escrow released on order funding.`]
+      );
+
+      await logHistory(client, order.farmer_id, "escrow_half_released", orderId, `Released 50% escrow (${releaseAmount} GHS) to farmer balance on funding.`);
+      finalEscrowStatus = 'half_released';
+    } else {
+      // Just update status to escrow_funded
+      await client.query(
+        "UPDATE orders SET status = 'escrow_funded', escrow_status = 'funded', updated_at = NOW() WHERE order_id = $1",
+        [orderId]
+      );
+    }
 
     await client.query("COMMIT");
-    res.json({ message: "Escrow pre-funded successfully.", order_id: orderId, transaction_id });
+    res.json({ message: "Escrow funded successfully.", order_id: orderId, transaction_id, escrow_status: finalEscrowStatus });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Error funding escrow:", err.message);
@@ -450,17 +507,22 @@ exports.raiseDispute = async (req, res) => {
       return res.status(403).json({ error: "Forbidden. You do not own this order." });
     }
 
-    // Insert dispute
+    const currentEscrowStatus = check.rows[0].escrow_status;
+
+    // Insert dispute recording previous_escrow_status
     const result = await client.query(
-      `INSERT INTO disputes (order_id, buyer_id, reason) 
-       VALUES ($1, $2, $3) 
+      `INSERT INTO disputes (order_id, buyer_id, reason, previous_escrow_status) 
+       VALUES ($1, $2, $3, $4) 
        RETURNING *`,
-      [orderId, buyerId, reason]
+      [orderId, buyerId, reason, currentEscrowStatus]
     );
     const dispute = result.rows[0];
 
-    // Update order status to disputed
-    await client.query("UPDATE orders SET status = 'disputed', updated_at = NOW() WHERE order_id = $1", [orderId]);
+    // Update order status to disputed, freeze escrow, and backup status
+    await client.query(
+      "UPDATE orders SET status = 'disputed', escrow_status = 'disputed', previous_escrow_status = $1, updated_at = NOW() WHERE order_id = $2",
+      [currentEscrowStatus, orderId]
+    );
 
     // Log history
     await logHistory(client, buyerId, "dispute_raised", dispute.dispute_id, `Raised dispute on order ID ${orderId} due to: ${reason}`);
@@ -514,5 +576,260 @@ exports.getAnalytics = async (req, res) => {
   } catch (err) {
     console.error("❌ Error fetching buyer analytics:", err.message);
     res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// Helper to lazily create or fetch a wallet
+async function getOrCreateWallet(client, userId) {
+  const existing = await client.query("SELECT * FROM wallets WHERE user_id = $1", [userId]);
+  if (existing.rows.length > 0) {
+    return existing.rows[0];
+  }
+  const created = await client.query(
+    "INSERT INTO wallets (user_id, balance, escrow_balance) VALUES ($1, 0.00, 0.00) RETURNING *",
+    [userId]
+  );
+  return created.rows[0];
+}
+
+exports.selfPickup = async (req, res) => {
+  const orderId = req.params.id;
+  const buyerId = req.user.user_id;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify order ownership and status, and get farmer info
+    const check = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+    if (check.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Order not found." });
+    }
+    const order = check.rows[0];
+
+    if (order.buyer_id !== buyerId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden. You do not own this order." });
+    }
+
+    if (order.status !== "ready_for_pickup" && order.status !== "escrow_funded" && order.status !== "accepted") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Cannot confirm self-pickup. Order is in '${order.status}' state.` });
+    }
+
+    const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
+
+    // Calculate how much escrow remains to be released
+    let releaseAmount = 0.00;
+    if (order.escrow_status === 'half_released') {
+      releaseAmount = orderTotal * 0.5;
+    } else if (order.escrow_status === 'funded') {
+      releaseAmount = orderTotal;
+    }
+
+    // Update order status, escrow_status, and delivery_status
+    await client.query(
+      `UPDATE orders 
+       SET status = 'delivered', escrow_status = 'released', delivery_status = 'completed', updated_at = NOW() 
+       WHERE order_id = $1`,
+      [orderId]
+    );
+
+    // Release escrow to farmer (if any funds to release)
+    if (releaseAmount > 0) {
+      const farmerWallet = await getOrCreateWallet(client, order.farmer_id);
+      const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - releaseAmount);
+      const newFarmerBalance = parseFloat(farmerWallet.balance) + releaseAmount;
+
+      await client.query(
+        "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
+        [newFarmerBalance, newFarmerEscrow, order.farmer_id]
+      );
+
+      // Create release payments record
+      await client.query(
+        `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+         VALUES ($1, $2, $3, 'release', 'confirmed', $4)`,
+        [orderId, buyerId, releaseAmount, `Remaining escrow released to farmer via self-pickup.`]
+      );
+
+      // Create wallet transaction record for the farmer
+      await client.query(
+        `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+         VALUES ($1, 'escrow', $2, 'success', $3)`,
+        [order.farmer_id, releaseAmount, `Remaining escrow released via self-pickup.`]
+      );
+
+      await logHistory(client, order.farmer_id, "escrow_released", orderId, `Released remaining escrow (${releaseAmount} GHS) to farmer for completed self-pickup order ID ${orderId}`);
+    }
+
+    // Cancel any associated jobs since transporter was bypassed
+    await client.query(
+      "UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE order_id = $1 AND status != 'delivered'",
+      [orderId]
+    );
+
+    await client.query("COMMIT");
+    res.json({ message: "Self-pickup confirmed successfully. Escrow released to farmer.", order_id: orderId });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error in self-pickup:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+
+exports.resolveDispute = async (req, res) => {
+  const orderId = req.params.id;
+  const { action } = req.body; // 'cancel' or 'refund'
+  const buyerId = req.user.user_id;
+
+  if (!action || (action !== 'cancel' && action !== 'refund')) {
+    return res.status(400).json({ error: "A valid dispute resolution action ('cancel' or 'refund') is required." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Fetch dispute details
+    const disputeQuery = await client.query(
+      "SELECT * FROM disputes WHERE order_id = $1 AND status = 'open'",
+      [orderId]
+    );
+    if (disputeQuery.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Open dispute for this order not found." });
+    }
+    const dispute = disputeQuery.rows[0];
+
+    // Fetch order details
+    const orderQuery = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+    const order = orderQuery.rows[0];
+    const farmerId = order.farmer_id;
+    const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
+
+    // Determine the escrow status before dispute
+    const prevStatus = dispute.previous_escrow_status || order.previous_escrow_status || 'funded';
+
+    if (action === 'cancel') {
+      // 1. Restore previous escrow status and keep order status
+      let restoredOrderStatus = 'escrow_funded';
+      if (prevStatus === 'half_released') {
+        restoredOrderStatus = 'picked_up';
+      }
+      
+      await client.query(
+        "UPDATE orders SET status = $1, escrow_status = $2, updated_at = NOW() WHERE order_id = $3",
+        [restoredOrderStatus, prevStatus, orderId]
+      );
+
+      // 2. Set dispute status to resolved
+      await client.query(
+        "UPDATE disputes SET status = 'resolved', resolved_at = NOW() WHERE dispute_id = $1",
+        [dispute.dispute_id]
+      );
+
+      await logHistory(client, buyerId, "dispute_cancelled", dispute.dispute_id, `Cancelled dispute on order ID ${orderId}. Restored escrow status to ${prevStatus}.`);
+      
+      await client.query("COMMIT");
+      return res.json({ message: "Dispute cancelled successfully. Escrow status restored.", order_id: orderId });
+    }
+
+    if (action === 'refund') {
+      // 1. Calculate refund amount (remaining escrow: 100% if funded, 50% if half_released)
+      let refundAmount = 0.00;
+      if (prevStatus === 'half_released') {
+        refundAmount = orderTotal * 0.5;
+      } else {
+        refundAmount = orderTotal;
+      }
+
+      // 2. Deduct refundAmount from farmer's escrow balance and add it to buyer's wallet balance
+      if (refundAmount > 0) {
+        // Farmer wallet update
+        const farmerWallet = await getOrCreateWallet(client, farmerId);
+        const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - refundAmount);
+        await client.query(
+          "UPDATE wallets SET escrow_balance = $1, updated_at = NOW() WHERE user_id = $2",
+          [newFarmerEscrow, farmerId]
+        );
+
+        // Buyer wallet update
+        const buyerWallet = await getOrCreateWallet(client, buyerId);
+        const newBuyerBalance = parseFloat(buyerWallet.balance) + refundAmount;
+        await client.query(
+          "UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2",
+          [newBuyerBalance, buyerId]
+        );
+
+        // Create release/refund payments record
+        await client.query(
+          `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+           VALUES ($1, $2, $3, 'release', 'confirmed', $4)`,
+          [orderId, buyerId, refundAmount, `Escrow refunded to buyer due to dispute resolution.`]
+        );
+
+        // Create wallet transaction record for the farmer's escrow deduction
+        await client.query(
+          `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+           VALUES ($1, 'escrow', $2, 'success', $3)`,
+          [farmerId, -refundAmount, `Escrow refunded to buyer for order ID ${orderId}.`]
+        );
+
+        // Create wallet transaction record for the buyer's balance credit
+        await client.query(
+          `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+           VALUES ($1, 'deposit', $2, 'success', $3)`,
+          [buyerId, refundAmount, `Refund of ${refundAmount} GHS for order ID ${orderId} dispute.`]
+        );
+      }
+
+      // 3. Set order status to cancelled, escrow_status = refunded, delivery_status = cancelled
+      await client.query(
+        `UPDATE orders 
+         SET status = 'cancelled', escrow_status = 'refunded', delivery_status = 'cancelled', updated_at = NOW() 
+         WHERE order_id = $1`,
+        [orderId]
+      );
+
+      // 4. Update dispute status to resolved
+      await client.query(
+        "UPDATE disputes SET status = 'resolved', resolved_at = NOW() WHERE dispute_id = $1",
+        [dispute.dispute_id]
+      );
+
+      // Cancel associated jobs
+      await client.query(
+        "UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE order_id = $1 AND status != 'delivered'",
+        [orderId]
+      );
+
+      await logHistory(client, buyerId, "dispute_refunded", dispute.dispute_id, `Resolved dispute on order ID ${orderId} with a refund of ${refundAmount} GHS to buyer.`);
+
+      await client.query("COMMIT");
+      return res.json({ message: "Dispute resolved with a refund. Escrow returned to buyer.", order_id: orderId, refund_amount: refundAmount });
+    }
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error in dispute resolution:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
   }
 };

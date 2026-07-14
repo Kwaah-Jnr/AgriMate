@@ -1,14 +1,17 @@
 const pool = require("../database");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+
+const JWT_SECRET = process.env.JWT_SECRET || "agrimate_secret_key";
 
 const loginUser = async (req, res) => {
   const { identifier, password, pin } = req.body;
   const passwordVal = password || pin;
 
   try {
-    // 1. Look for the user by username, phone number, or email and fetch their role
+    // 1. Look for the user by username, phone number, or email and fetch their role and vehicle number
     const userResult = await pool.query(
-      `SELECT u.*, r.role 
+      `SELECT u.user_id, u.username, u.phone_number, u.email, u.pin, u.region, u.vehicle_number, r.role 
        FROM users u 
        LEFT JOIN roles r ON u.user_id = r.user_id 
        WHERE u.username = $1 OR u.phone_number = $1 OR u.email = $1`,
@@ -30,16 +33,31 @@ const loginUser = async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // 4. If everything is correct, return success message, user info (excluding PIN) and role
+    // 4. Generate JWT
+    const token = jwt.sign(
+      {
+        user_id: user.user_id,
+        username: user.username,
+        role: user.role,
+        region: user.region,
+        vehicleNumber: user.vehicle_number
+      },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    // 5. If everything is correct, return token and user info (excluding PIN) and role
     res.json({
       message: "Login successful!",
+      token,
       user: {
         id: user.user_id,
         username: user.username,
         phone_number: user.phone_number,
         email: user.email,
         region: user.region,
-        role: user.role
+        role: user.role,
+        vehicleNumber: user.vehicle_number
       },
     });
   } catch (err) {

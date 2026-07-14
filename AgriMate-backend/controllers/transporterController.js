@@ -83,10 +83,10 @@ exports.claimJob = async (req, res) => {
       [transporterId, jobId]
     );
 
-    // 2. Update order status to assigned/in_transit
+    // 2. Update order status and record delivery_status and transporter_vehicle
     await client.query(
-      "UPDATE orders SET status = 'assigned', updated_at = NOW() WHERE order_id = $1",
-      [job.order_id]
+      "UPDATE orders SET status = 'assigned', delivery_status = 'claimed', transporter_vehicle = $1, updated_at = NOW() WHERE order_id = $2",
+      [req.user.vehicleNumber || null, job.order_id]
     );
 
     // 3. Log history
@@ -147,8 +147,62 @@ exports.confirmPickup = async (req, res) => {
     // 1. Update job status
     await client.query("UPDATE jobs SET status = 'picked_up', updated_at = NOW() WHERE job_id = $1", [jobId]);
 
-    // 2. Update order status
-    await client.query("UPDATE orders SET status = 'picked_up', updated_at = NOW() WHERE order_id = $1", [job.order_id]);
+    // Fetch order and farmer info
+    const orderQuery = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [job.order_id]
+    );
+    const order = orderQuery.rows[0];
+    const farmerId = order.farmer_id;
+    const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
+    const releaseAmount = orderTotal * 0.5;
+
+    let escrowReleased = false;
+
+    if (order.escrow_status === 'funded') {
+      // Release 50% escrow to farmer
+      const farmerWallet = await getOrCreateWallet(client, farmerId);
+      const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - releaseAmount);
+      const newFarmerBalance = parseFloat(farmerWallet.balance) + releaseAmount;
+      await client.query(
+        "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
+        [newFarmerBalance, newFarmerEscrow, farmerId]
+      );
+
+      // Update order status, escrow_status = half_released, delivery_status = transit
+      await client.query(
+        "UPDATE orders SET status = 'picked_up', escrow_status = 'half_released', delivery_status = 'transit', updated_at = NOW() WHERE order_id = $1",
+        [job.order_id]
+      );
+
+      // Create release payments record
+      await client.query(
+        `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+         VALUES ($1, $2, $3, 'release', 'confirmed', $4)`,
+        [job.order_id, order.buyer_id, releaseAmount, `50% escrow released to farmer on transporter pickup.`]
+      );
+
+      // Create wallet transaction record for the farmer
+      await client.query(
+        `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+         VALUES ($1, 'escrow', $2, 'success', $3)`,
+        [farmerId, releaseAmount, `50% escrow released on transporter pickup.`]
+      );
+
+      await logHistory(client, farmerId, "escrow_half_released", job.order_id, `Released 50% escrow (${releaseAmount} GHS) to farmer balance on transporter pickup.`);
+      escrowReleased = true;
+    } else {
+      // Just update order status and delivery_status to transit
+      // Note: If escrow was already half_released (by farmer fulfill), it stays half_released
+      const nextEscrowStatus = order.escrow_status === 'half_released' ? 'half_released' : order.escrow_status;
+      await client.query(
+        "UPDATE orders SET status = 'picked_up', escrow_status = $1, delivery_status = 'transit', updated_at = NOW() WHERE order_id = $2",
+        [nextEscrowStatus, job.order_id]
+      );
+    }
 
     // 3. Log history
     await logHistory(client, transporterId, "job_pickup_confirmed", jobId, `Confirmed crop pickup for job ID ${jobId}`);
@@ -204,13 +258,7 @@ exports.confirmDelivery = async (req, res) => {
     // 1. Update job status to delivered
     await client.query("UPDATE jobs SET status = 'delivered', updated_at = NOW() WHERE job_id = $1", [jobId]);
 
-    // 2. Update order status to delivered
-    await client.query("UPDATE orders SET status = 'delivered', updated_at = NOW() WHERE order_id = $1", [job.order_id]);
-
-    // 3. Update payment status to confirmed
-    await client.query("UPDATE payments SET status = 'confirmed', confirmed_at = NOW() WHERE order_id = $1", [job.order_id]);
-
-    // 4. Trigger Escrow Release to Farmer
+    // 2. Fetch order and farmer info
     const orderQuery = await client.query(
       `SELECT o.*, l.user_id as farmer_id 
        FROM orders o 
@@ -222,19 +270,52 @@ exports.confirmDelivery = async (req, res) => {
     const farmerId = order.farmer_id;
     const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
 
-    // Deduct from farmer's escrow balance and add to settled balance
-    const farmerWallet = await getOrCreateWallet(client, farmerId);
-    const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - orderTotal);
-    const newFarmerBalance = parseFloat(farmerWallet.balance) + orderTotal;
+    // Calculate how much escrow remains to be released
+    let releaseAmount = 0.00;
+    if (order.escrow_status === 'half_released') {
+      releaseAmount = orderTotal * 0.5;
+    } else if (order.escrow_status === 'funded') {
+      releaseAmount = orderTotal;
+    }
 
+    // 3. Update order status, escrow_status, and delivery_status
     await client.query(
-      "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
-      [newFarmerBalance, newFarmerEscrow, farmerId]
+      `UPDATE orders 
+       SET status = 'delivered', escrow_status = 'released', delivery_status = 'completed', updated_at = NOW() 
+       WHERE order_id = $1`,
+      [job.order_id]
     );
-    await logHistory(client, farmerId, "escrow_released", order.order_id, `Released ${orderTotal} GHS from escrow to wallet balance for completed order ID ${order.order_id}`);
+
+    // 4. Trigger Escrow Release to Farmer (if there are funds to release)
+    if (releaseAmount > 0) {
+      const farmerWallet = await getOrCreateWallet(client, farmerId);
+      const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - releaseAmount);
+      const newFarmerBalance = parseFloat(farmerWallet.balance) + releaseAmount;
+
+      await client.query(
+        "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
+        [newFarmerBalance, newFarmerEscrow, farmerId]
+      );
+
+      // Create release payments record
+      await client.query(
+        `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+         VALUES ($1, $2, $3, 'release', 'confirmed', $4)`,
+        [job.order_id, order.buyer_id, releaseAmount, `Remaining escrow released to farmer on transporter delivery.`]
+      );
+
+      // Create wallet transaction record for the farmer
+      await client.query(
+        `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+         VALUES ($1, 'escrow', $2, 'success', $3)`,
+        [farmerId, releaseAmount, `Remaining escrow released on transporter delivery.`]
+      );
+
+      await logHistory(client, farmerId, "escrow_released", order.order_id, `Released remaining escrow (${releaseAmount} GHS) to farmer wallet balance for completed order ID ${order.order_id}`);
+    }
 
     // 5. Trigger Transporter Payout
-    const transPayout = parseFloat(job.payout);
+    const transPayout = parseFloat(job.payout) || parseFloat(job.flat_fee) || 100.00;
     const transWallet = await getOrCreateWallet(client, transporterId);
     const newTransBalance = parseFloat(transWallet.balance) + transPayout;
 
@@ -242,6 +323,14 @@ exports.confirmDelivery = async (req, res) => {
       "UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2",
       [newTransBalance, transporterId]
     );
+
+    // Create wallet transaction record for the transporter payout
+    await client.query(
+      `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+       VALUES ($1, 'deposit', $2, 'success', $3)`,
+      [transporterId, transPayout, `Logistics payout received for job ID ${jobId}.`]
+    );
+
     await logHistory(client, transporterId, "payout_received", jobId, `Received payout of ${transPayout} GHS for completed logistics job ID ${jobId}`);
 
     await client.query("COMMIT");

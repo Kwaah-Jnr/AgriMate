@@ -9,4 +9,16 @@ const pool = new Pool({
   port: process.env.DB_PORT,
 });  
 
+// Error handler to prevent idle client connection losses from crashing the server process
+pool.on('error', (err, client) => {
+  console.error('❌ Unexpected database pool error:', err.message);
+});
+
+// Bind error handlers to individual clients on connection to prevent unhandled crashes
+pool.on('connect', (client) => {
+  client.on('error', (err) => {
+    console.error('❌ Database client error:', err.message);
+  });
+});
+
 module.exports = pool;

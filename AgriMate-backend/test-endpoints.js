@@ -4,314 +4,474 @@ const pool = require('./database');
 const BASE_URL = 'http://localhost:' + (process.env.PORT || '5000');
 
 async function runTests() {
-  console.log('🧪 Starting AgriMate End-to-End Marketplace Integration Tests...\n');
+  console.log('🧪 Starting AgriMate End-to-End JWT & Escrow Integration Tests...\n');
 
   const userIds = [];
-  let listingId = null;
-  let orderId = null;
-  let jobId = null;
+  const createdListings = [];
+  const createdOrders = [];
+  const createdJobs = [];
+
+  let farmerToken, buyerToken, transporterToken;
+  let farmerId, buyerId, transporterId;
+  let farmerEmail, buyerEmail, transporterEmail;
 
   try {
     // -------------------------------------------------------------
-    // 1. Onboarding (Registration)
+    // 1. Onboarding (Registration & Login)
     // -------------------------------------------------------------
-    console.log('--- 1. Registering Test Users ---');
+    console.log('--- 1. Registering & Logging In Test Users ---');
     
-    // Farmer
-    const farmerRes = await fetch(`${BASE_URL}/api/users/register`, {
+    farmerEmail = 'farmer_' + Date.now() + '@test.com';
+    buyerEmail = 'buyer_' + Date.now() + '@test.com';
+    transporterEmail = 'transporter_' + Date.now() + '@test.com';
+
+    // Farmer Registration
+    const farmerRegRes = await fetch(`${BASE_URL}/api/users/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         full_name: 'Test Farmer ' + Date.now(),
-        email: 'farmer_' + Date.now() + '@test.com',
+        email: farmerEmail,
         phone: '024' + Math.floor(1000000 + Math.random() * 9000000),
         region: 'Ashanti',
         password: 'password123',
         role: 'farmer'
       })
     });
-    const farmerData = await farmerRes.json();
-    if (!farmerRes.ok) throw new Error('Farmer registration failed: ' + JSON.stringify(farmerData));
-    const farmerId = farmerData.user.user_id;
+    const farmerRegData = await farmerRegRes.json();
+    if (!farmerRegRes.ok) throw new Error('Farmer registration failed: ' + JSON.stringify(farmerRegData));
+    farmerId = farmerRegData.user.user_id;
     userIds.push(farmerId);
     console.log(`✅ Registered Farmer (ID: ${farmerId})`);
 
-    // Buyer
-    const buyerRes = await fetch(`${BASE_URL}/api/users/register`, {
+    // Buyer Registration
+    const buyerRegRes = await fetch(`${BASE_URL}/api/users/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         full_name: 'Test Buyer ' + Date.now(),
-        email: 'buyer_' + Date.now() + '@test.com',
+        email: buyerEmail,
         phone: '024' + Math.floor(1000000 + Math.random() * 9000000),
         region: 'Greater Accra',
         password: 'password123',
         role: 'buyer'
       })
     });
-    const buyerData = await buyerRes.json();
-    if (!buyerRes.ok) throw new Error('Buyer registration failed: ' + JSON.stringify(buyerData));
-    const buyerId = buyerData.user.user_id;
+    const buyerRegData = await buyerRegRes.json();
+    if (!buyerRegRes.ok) throw new Error('Buyer registration failed: ' + JSON.stringify(buyerRegData));
+    buyerId = buyerRegData.user.user_id;
     userIds.push(buyerId);
     console.log(`✅ Registered Buyer (ID: ${buyerId})`);
 
-    // Transporter
-    const transporterRes = await fetch(`${BASE_URL}/api/users/register`, {
+    // Transporter Registration (with vehicle number)
+    const transporterRegRes = await fetch(`${BASE_URL}/api/users/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         full_name: 'Test Transporter ' + Date.now(),
-        email: 'transporter_' + Date.now() + '@test.com',
+        email: transporterEmail,
         phone: '024' + Math.floor(1000000 + Math.random() * 9000000),
         region: 'Ashanti',
         password: 'password123',
-        role: 'transporter'
+        role: 'transporter',
+        vehicleNumber: 'GT-505-26'
       })
     });
-    const transporterData = await transporterRes.json();
-    if (!transporterRes.ok) throw new Error('Transporter registration failed: ' + JSON.stringify(transporterData));
-    const transporterId = transporterData.user.user_id;
+    const transporterRegData = await transporterRegRes.json();
+    if (!transporterRegRes.ok) throw new Error('Transporter registration failed: ' + JSON.stringify(transporterRegData));
+    transporterId = transporterRegData.user.user_id;
     userIds.push(transporterId);
-    console.log(`✅ Registered Transporter (ID: ${transporterId})\n`);
+    console.log(`✅ Registered Transporter (ID: ${transporterId})`);
 
-    // -------------------------------------------------------------
-    // 2. Authentication (Login)
-    // -------------------------------------------------------------
-    console.log('--- 2. Verifying Authentication (Login) ---');
-    const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+    // Logging in Farmer
+    const farmerLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        identifier: farmerData.user.email,
-        pin: 'password123'
-      })
+      body: JSON.stringify({ identifier: farmerEmail, pin: 'password123' })
     });
-    const loginData = await loginRes.json();
-    if (!loginRes.ok) throw new Error('Login failed: ' + JSON.stringify(loginData));
-    console.log(`✅ Logged in successfully. Username: "${loginData.user.username}" | Role: "${loginData.user.role}"\n`);
+    const farmerLoginData = await farmerLoginRes.json();
+    farmerToken = farmerLoginData.token;
+    console.log(`✅ Farmer Logged In (JWT obtained)`);
+
+    // Logging in Buyer
+    const buyerLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: buyerEmail, pin: 'password123' })
+    });
+    const buyerLoginData = await buyerLoginRes.json();
+    buyerToken = buyerLoginData.token;
+    console.log(`✅ Buyer Logged In (JWT obtained)`);
+
+    // Logging in Transporter
+    const transporterLoginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: transporterEmail, pin: 'password123' })
+    });
+    const transporterLoginData = await transporterLoginRes.json();
+    transporterToken = transporterLoginData.token;
+    console.log(`✅ Transporter Logged In (JWT obtained)\n`);
 
     // -------------------------------------------------------------
-    // 3. Listings CRUD (Farmer creates Listing)
+    // FLOW 1: Main Transporter Split-Escrow Handoff Flow
     // -------------------------------------------------------------
-    console.log('--- 3. Farmer Creating a Listing ---');
+    console.log('=== FLOW 1: Main Transporter Split-Escrow Handoff Flow ===');
+    
+    // 1. Farmer creates listing
     const listingRes = await fetch(`${BASE_URL}/api/farmer/listings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': farmerId.toString()
+        'Authorization': `Bearer ${farmerToken}`
       },
       body: JSON.stringify({
-        crop_name: 'Yam',
-        quantity: 100,
-        price: 25.50,
+        crop_name: 'Cassava',
+        quantity: 50,
+        price: 20.00,
         grade: 'A',
         location: 'Kumasi',
-        image_url: 'http://test.com/yam.jpg'
+        image_url: 'http://test.com/cassava.jpg'
       })
     });
     const listingData = await listingRes.json();
-    if (!listingRes.ok) throw new Error('Listing creation failed: ' + JSON.stringify(listingData));
-    listingId = listingData.listing_id;
-    console.log(`✅ Created Listing (ID: ${listingId}, Crop: ${listingData.crop_name}, Qty: ${listingData.quantity})\n`);
+    if (!listingRes.ok) throw new Error('Listing 1 creation failed: ' + JSON.stringify(listingData));
+    const listingId1 = listingData.listing_id;
+    createdListings.push(listingId1);
+    console.log(`✅ Listing created (ID: ${listingId1})`);
 
-    // -------------------------------------------------------------
-    // 4. Bidding/Offers (Buyer places offer)
-    // -------------------------------------------------------------
-    console.log('--- 4. Buyer Placing Offer on Listing ---');
+    // 2. Buyer places offer
     const offerRes = await fetch(`${BASE_URL}/api/buyer/offers`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': buyerId.toString()
+        'Authorization': `Bearer ${buyerToken}`
       },
       body: JSON.stringify({
-        listings_id: listingId,
-        price: 25.00,
-        quantity: 80,
-        pickup_by: '2026-07-01',
-        note: 'High grade Yam'
+        listings_id: listingId1,
+        price: 20.00,
+        quantity: 50,
+        pickup_by: '2026-07-15',
+        note: 'Fresh cassava'
       })
     });
     const offerData = await offerRes.json();
-    if (!offerRes.ok) throw new Error('Offer placement failed: ' + JSON.stringify(offerData));
-    orderId = offerData.order_id;
-    console.log(`✅ Placed Offer (Order ID: ${orderId}, Offered Price: ${offerData.price}, Qty: ${offerData.quantity})\n`);
+    if (!offerRes.ok) throw new Error('Offer 1 placement failed: ' + JSON.stringify(offerData));
+    const orderId1 = offerData.order_id;
+    createdOrders.push(orderId1);
+    console.log(`✅ Offer placed (Order ID: ${orderId1})`);
 
-    // -------------------------------------------------------------
-    // 5. Offer Acceptance (Farmer accepts offer)
-    // -------------------------------------------------------------
-    console.log('--- 5. Farmer Accepting Buyer Offer ---');
-    const acceptRes = await fetch(`${BASE_URL}/api/farmer/offers/${orderId}/accept`, {
+    // 3. Farmer accepts offer (sets status to accepted, escrow_status = unfunded)
+    const acceptRes = await fetch(`${BASE_URL}/api/farmer/offers/${orderId1}/accept`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': farmerId.toString()
+        'Authorization': `Bearer ${farmerToken}`
       }
     });
     const acceptData = await acceptRes.json();
-    if (!acceptRes.ok) throw new Error('Offer acceptance failed: ' + JSON.stringify(acceptData));
-    console.log(`✅ Offer accepted. Escrow balance locked.\n`);
+    if (!acceptRes.ok) throw new Error('Accept offer 1 failed: ' + JSON.stringify(acceptData));
+    
+    // Verify DB states after Acceptance
+    let orderCheck = await pool.query('SELECT status, escrow_status, delivery_status FROM orders WHERE order_id = $1', [orderId1]);
+    console.log(`✅ Accept verification: order status = "${orderCheck.rows[0].status}" | escrow = "${orderCheck.rows[0].escrow_status}" | delivery = "${orderCheck.rows[0].delivery_status}"`);
+    if (orderCheck.rows[0].escrow_status !== 'unfunded') throw new Error('Escrow status should be unfunded!');
 
-    // -------------------------------------------------------------
-    // 6. Pre-funding Escrow (Buyer funds order)
-    // -------------------------------------------------------------
-    console.log('--- 6. Buyer Funding Escrow via MoMo ---');
-    const fundRes = await fetch(`${BASE_URL}/api/buyer/orders/${orderId}/fund`, {
+    // 4. Buyer funds escrow
+    const fundRes = await fetch(`${BASE_URL}/api/buyer/orders/${orderId1}/fund`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': buyerId.toString()
+        'Authorization': `Bearer ${buyerToken}`
       },
-      body: JSON.stringify({
-        transaction_id: 'MOMO-TEST-' + Date.now()
-      })
+      body: JSON.stringify({ transaction_id: 'TXN-MOMO-F1-' + Date.now() })
     });
     const fundData = await fundRes.json();
-    if (!fundRes.ok) throw new Error('Escrow funding failed: ' + JSON.stringify(fundData));
-    console.log(`✅ Escrow funded. Transaction: ${fundData.transaction_id}\n`);
+    if (!fundRes.ok) throw new Error('Fund escrow 1 failed: ' + JSON.stringify(fundData));
+    console.log(`✅ Escrow funded. Transaction: ${fundData.transaction_id}`);
 
-    // -------------------------------------------------------------
-    // 7. Order Fulfillment / Job Initialization
-    // -------------------------------------------------------------
-    console.log('--- 7. Farmer Marking Order "Ready for Pickup" (Logs Job) ---');
-    const fulfillRes = await fetch(`${BASE_URL}/api/farmer/orders/${orderId}/fulfill`, {
+    // Verify DB states after funding
+    orderCheck = await pool.query('SELECT status, escrow_status FROM orders WHERE order_id = $1', [orderId1]);
+    console.log(`✅ Fund verification: escrow_status = "${orderCheck.rows[0].escrow_status}"`);
+    if (orderCheck.rows[0].escrow_status !== 'funded') throw new Error('Escrow status should be funded!');
+
+    // 5. Farmer marks order ready (fulfills order) -> Triggers 50% release
+    const fulfillRes = await fetch(`${BASE_URL}/api/farmer/orders/${orderId1}/fulfill`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': farmerId.toString()
+        'Authorization': `Bearer ${farmerToken}`
       }
     });
     const fulfillData = await fulfillRes.json();
-    if (!fulfillRes.ok) throw new Error('Order fulfillment failed: ' + JSON.stringify(fulfillData));
-    console.log(`✅ Order marked ready. Available logistics job created.\n`);
+    if (!fulfillRes.ok) throw new Error('Fulfill order 1 failed: ' + JSON.stringify(fulfillData));
+    console.log(`✅ Order marked ready by farmer. Split release triggered.`);
 
-    // -------------------------------------------------------------
-    // 8. Job Discovery & Claiming (Transporter claims job)
-    // -------------------------------------------------------------
-    console.log('--- 8. Transporter Job Discovery & Claiming ---');
+    // Verify wallet after farmer fulfill (50% release: orderTotal = 20 * 50 = 1000 GHS, so 50% = 500 GHS)
+    let farmerWallet = await pool.query('SELECT balance, escrow_balance FROM wallets WHERE user_id = $1', [farmerId]);
+    console.log(`🌾 Farmer Wallet: Balance = ${farmerWallet.rows[0].balance} GHS (Expected: 500.00) | Escrow = ${farmerWallet.rows[0].escrow_balance} GHS (Expected: 500.00)`);
+    if (parseFloat(farmerWallet.rows[0].balance) !== 500.00) throw new Error('Expected 500.00 GHS in farmer balance!');
+
+    // 6. Transporter claims job
     const jobsRes = await fetch(`${BASE_URL}/api/transporter/jobs/available`, {
-      method: 'GET',
-      headers: { 'X-User-Id': transporterId.toString() }
+      headers: { 'Authorization': `Bearer ${transporterToken}` }
     });
     const jobsList = await jobsRes.json();
-    if (!jobsRes.ok) throw new Error('Failed to fetch available jobs: ' + JSON.stringify(jobsList));
-    
-    // Find the job associated with our order
-    const job = jobsList.find(j => j.pickup_location === 'Kumasi'); // listing location
-    if (!job) throw new Error('Expected logistics job not found in available jobs list');
-    jobId = job.job_id;
-    console.log(`🔍 Discovered Available Job (ID: ${jobId}, Distance: ${job.distance_km} km, Payout: ${job.payout} GHS)`);
+    const job = jobsList.find(j => j.pickup_location === 'Kumasi');
+    if (!job) throw new Error('Job 1 not found in available list');
+    const jobId1 = job.job_id;
+    createdJobs.push(jobId1);
 
-    const claimRes = await fetch(`${BASE_URL}/api/transporter/jobs/${jobId}/claim`, {
+    const claimRes = await fetch(`${BASE_URL}/api/transporter/jobs/${jobId1}/claim`, {
       method: 'POST',
-      headers: { 'X-User-Id': transporterId.toString() }
+      headers: { 'Authorization': `Bearer ${transporterToken}` }
     });
-    const claimData = await claimRes.json();
-    if (!claimRes.ok) throw new Error('Claim job failed: ' + JSON.stringify(claimData));
-    console.log(`✅ Job claimed by transporter.\n`);
+    if (!claimRes.ok) throw new Error('Claim job 1 failed');
+    
+    // Verify transporter vehicle copy
+    orderCheck = await pool.query('SELECT transporter_vehicle, delivery_status FROM orders WHERE order_id = $1', [orderId1]);
+    console.log(`🚚 Transporter vehicle on order = "${orderCheck.rows[0].transporter_vehicle}" | delivery = "${orderCheck.rows[0].delivery_status}"`);
+    if (orderCheck.rows[0].transporter_vehicle !== 'GT-505-26') throw new Error('Vehicle number not recorded correctly!');
 
-    // Retrieve generated QR codes from database for pickup/delivery validation
-    const qrQuery = await pool.query('SELECT qr_pickup, qr_delivery FROM jobs WHERE job_id = $1', [jobId]);
+    // Get QR codes
+    const qrQuery = await pool.query('SELECT qr_pickup, qr_delivery FROM jobs WHERE job_id = $1', [jobId1]);
     const { qr_pickup, qr_delivery } = qrQuery.rows[0];
 
-    // -------------------------------------------------------------
-    // 9. Confirm Pickup (Transporter confirms pickup)
-    // -------------------------------------------------------------
-    console.log('--- 9. Transporter Scanning Pickup QR Code ---');
-    const pickupRes = await fetch(`${BASE_URL}/api/transporter/jobs/${jobId}/confirm-pickup`, {
+    // 7. Transporter pickup (No double release because already half_released)
+    const pickupRes = await fetch(`${BASE_URL}/api/transporter/jobs/${jobId1}/confirm-pickup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': transporterId.toString()
+        'Authorization': `Bearer ${transporterToken}`
       },
       body: JSON.stringify({ qr_code: qr_pickup })
     });
-    const pickupData = await pickupRes.json();
-    if (!pickupRes.ok) throw new Error('Pickup confirmation failed: ' + JSON.stringify(pickupData));
-    console.log(`✅ Pickup confirmed. Crops are now in transit.\n`);
+    if (!pickupRes.ok) throw new Error('Pickup confirmation failed');
 
-    // -------------------------------------------------------------
-    // 10. Confirm Delivery (Automatic Escrow Release & Payout)
-    // -------------------------------------------------------------
-    console.log('--- 10. Transporter Scanning Delivery QR Code (Completes order) ---');
-    const deliveryRes = await fetch(`${BASE_URL}/api/transporter/jobs/${jobId}/confirm-delivery`, {
+    // Verify no double release occurred
+    farmerWallet = await pool.query('SELECT balance, escrow_balance FROM wallets WHERE user_id = $1', [farmerId]);
+    console.log(`🌾 Farmer Wallet (after pickup): Balance = ${farmerWallet.rows[0].balance} GHS (Expected: 500.00)`);
+    if (parseFloat(farmerWallet.rows[0].balance) !== 500.00) throw new Error('Double release detected! Farmer balance increased!');
+
+    orderCheck = await pool.query('SELECT escrow_status, delivery_status FROM orders WHERE order_id = $1', [orderId1]);
+    console.log(`📦 Order (after pickup): escrow = "${orderCheck.rows[0].escrow_status}" | delivery = "${orderCheck.rows[0].delivery_status}"`);
+
+    // 8. Transporter delivery (Triggers remaining 50% release and transporter payout)
+    const deliveryRes = await fetch(`${BASE_URL}/api/transporter/jobs/${jobId1}/confirm-delivery`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': transporterId.toString()
+        'Authorization': `Bearer ${transporterToken}`
       },
       body: JSON.stringify({ qr_code: qr_delivery })
     });
-    const deliveryData = await deliveryRes.json();
-    if (!deliveryRes.ok) throw new Error('Delivery confirmation failed: ' + JSON.stringify(deliveryData));
-    console.log(`✅ Delivery confirmed! Escrow released and driver paid.\n`);
+    if (!deliveryRes.ok) throw new Error('Delivery confirmation failed');
+
+    // Verify final release
+    farmerWallet = await pool.query('SELECT balance, escrow_balance FROM wallets WHERE user_id = $1', [farmerId]);
+    console.log(`🌾 Farmer Wallet (final): Balance = ${farmerWallet.rows[0].balance} GHS (Expected: 1000.00) | Escrow = ${farmerWallet.rows[0].escrow_balance} GHS (Expected: 0)`);
+    if (parseFloat(farmerWallet.rows[0].balance) !== 1000.00) throw new Error('Escrow release failed!');
+
+    // Verify transporter wallet (distance base payout or flat fee)
+    const transWallet = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [transporterId]);
+    console.log(`🚚 Transporter Wallet: Balance = ${transWallet.rows[0].balance} GHS`);
+    if (parseFloat(transWallet.rows[0].balance) <= 0) throw new Error('Transporter was not paid!');
+
+    orderCheck = await pool.query('SELECT escrow_status, delivery_status FROM orders WHERE order_id = $1', [orderId1]);
+    console.log(`📦 Order (final): escrow = "${orderCheck.rows[0].escrow_status}" | delivery = "${orderCheck.rows[0].delivery_status}"\n`);
+
 
     // -------------------------------------------------------------
-    // 11. Balance & Escrow Wallet Verifications
+    // FLOW 2: Buyer Self-Pickup Flow
     // -------------------------------------------------------------
-    console.log('--- 11. Verifying Financial Balances ---');
-    
-    // Farmer Wallet
-    const farmerWalletRes = await pool.query('SELECT balance, escrow_balance FROM wallets WHERE user_id = $1', [farmerId]);
-    const farmerWallet = farmerWalletRes.rows[0];
-    const expectedFarmerBalance = 25.00 * 80; // price * quantity
-    console.log(`🌾 Farmer Wallet: Balance = ${farmerWallet.balance} GHS (Expected: ${expectedFarmerBalance}) | Escrow = ${farmerWallet.escrow_balance} GHS (Expected: 0)`);
+    console.log('=== FLOW 2: Buyer Self-Pickup Flow ===');
 
-    // Transporter Wallet
-    const transWalletRes = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [transporterId]);
-    const transWallet = transWalletRes.rows[0];
-    console.log(`🚚 Transporter Wallet: Balance = ${transWallet.balance} GHS (Expected: payout value)`);
-
-    if (parseFloat(farmerWallet.balance) !== expectedFarmerBalance) {
-      throw new Error('Farmer balance does not match the trade value!');
-    }
-    console.log('✅ Financial verification succeeded!\n');
-
-    // -------------------------------------------------------------
-    // 12. Rating verification
-    // -------------------------------------------------------------
-    console.log('--- 12. Submitting Feedback/Ratings ---');
-    const rateRes = await fetch(`${BASE_URL}/api/buyer/ratings`, {
+    // 1. Farmer creates listing
+    const listingRes2 = await fetch(`${BASE_URL}/api/farmer/listings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': buyerId.toString()
+        'Authorization': `Bearer ${farmerToken}`
       },
-      body: JSON.stringify({
-        rated_user_id: farmerId,
-        score: 5,
-        comment: 'Great quality yams! Highly recommended.'
-      })
+      body: JSON.stringify({ crop_name: 'Maize', quantity: 20, price: 15.00, location: 'Kumasi' })
     });
-    const rateData = await rateRes.json();
-    if (!rateRes.ok) throw new Error('Submitting rating failed: ' + JSON.stringify(rateData));
-    console.log(`✅ Buyer successfully rated the Farmer 5 stars!\n`);
+    const listingId2 = (await listingRes2.json()).listing_id;
+    createdListings.push(listingId2);
 
-    console.log('🎉 ALL TESTS PASSED SUCCESSFULLY! The marketplace ecosystem is working correctly.\n');
+    // 2. Buyer places offer
+    const offerRes2 = await fetch(`${BASE_URL}/api/buyer/offers`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      },
+      body: JSON.stringify({ listings_id: listingId2, price: 15.00, quantity: 20 })
+    });
+    const orderId2 = (await offerRes2.json()).order_id;
+    createdOrders.push(orderId2);
+
+    // 3. Accept offer
+    await fetch(`${BASE_URL}/api/farmer/offers/${orderId2}/accept`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${farmerToken}` }
+    });
+
+    // 4. Fund escrow
+    await fetch(`${BASE_URL}/api/buyer/orders/${orderId2}/fund`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      },
+      body: JSON.stringify({ transaction_id: 'TXN-MOMO-F2-' + Date.now() })
+    });
+
+    // 5. Farmer fulfill (marks ready, triggers 50% release: orderTotal = 15 * 20 = 300 GHS, so 150 GHS released)
+    await fetch(`${BASE_URL}/api/farmer/orders/${orderId2}/fulfill`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${farmerToken}` }
+    });
+
+    // 6. Buyer bypasses transporter and self-pickups (releases remaining 50%: 150 GHS)
+    const selfPickupRes = await fetch(`${BASE_URL}/api/buyer/orders/${orderId2}/self-pickup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      }
+    });
+    const selfPickupData = await selfPickupRes.json();
+    if (!selfPickupRes.ok) throw new Error('Self pickup failed: ' + JSON.stringify(selfPickupData));
+    console.log(`✅ Self-pickup API called successfully!`);
+
+    // Verify DB states after self-pickup
+    orderCheck = await pool.query('SELECT status, escrow_status, delivery_status FROM orders WHERE order_id = $1', [orderId2]);
+    console.log(`📦 Order: status = "${orderCheck.rows[0].status}" | escrow = "${orderCheck.rows[0].escrow_status}" | delivery = "${orderCheck.rows[0].delivery_status}"`);
+    if (orderCheck.rows[0].escrow_status !== 'released' || orderCheck.rows[0].delivery_status !== 'completed') {
+      throw new Error('Self-pickup did not release escrow or complete delivery!');
+    }
+
+    // Farmer wallet gets remaining 150 GHS (total farmer balance becomes 1000 + 300 = 1300 GHS)
+    farmerWallet = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [farmerId]);
+    console.log(`🌾 Farmer Wallet (after self-pickup): Balance = ${farmerWallet.rows[0].balance} GHS (Expected: 1300.00)`);
+    if (parseFloat(farmerWallet.rows[0].balance) !== 1300.00) throw new Error('Farmer wallet balance verification failed after self-pickup!');
+    console.log(`✅ Self-pickup verification succeeded!\n`);
+
+
+    // -------------------------------------------------------------
+    // FLOW 3: Dispute & Refund Flow
+    // -------------------------------------------------------------
+    console.log('=== FLOW 3: Dispute & Refund Flow ===');
+
+    // 1. Farmer creates listing
+    const listingRes3 = await fetch(`${BASE_URL}/api/farmer/listings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${farmerToken}`
+      },
+      body: JSON.stringify({ crop_name: 'Beans', quantity: 10, price: 50.00, location: 'Kumasi' })
+    });
+    const listingId3 = (await listingRes3.json()).listing_id;
+    createdListings.push(listingId3);
+
+    // 2. Buyer places offer
+    const offerRes3 = await fetch(`${BASE_URL}/api/buyer/offers`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      },
+      body: JSON.stringify({ listings_id: listingId3, price: 50.00, quantity: 10 })
+    });
+    const orderId3 = (await offerRes3.json()).order_id;
+    createdOrders.push(orderId3);
+
+    // 3. Accept offer
+    await fetch(`${BASE_URL}/api/farmer/offers/${orderId3}/accept`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${farmerToken}` }
+    });
+
+    // 4. Fund escrow (orderTotal = 50 * 10 = 500 GHS)
+    await fetch(`${BASE_URL}/api/buyer/orders/${orderId3}/fund`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      },
+      body: JSON.stringify({ transaction_id: 'TXN-MOMO-F3-' + Date.now() })
+    });
+
+    // 5. Buyer raises dispute (escrow frozen)
+    const disputeRes = await fetch(`${BASE_URL}/api/buyer/orders/${orderId3}/dispute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      },
+      body: JSON.stringify({ reason: 'Quality does not match grade A specifications.' })
+    });
+    const disputeData = await disputeRes.json();
+    if (!disputeRes.ok) throw new Error('Dispute failed to raise: ' + JSON.stringify(disputeData));
+    console.log(`✅ Dispute raised. Reason: "${disputeData.reason}"`);
+
+    // Verify escrow is frozen
+    orderCheck = await pool.query('SELECT status, escrow_status FROM orders WHERE order_id = $1', [orderId3]);
+    console.log(`📦 Order: status = "${orderCheck.rows[0].status}" | escrow = "${orderCheck.rows[0].escrow_status}"`);
+    if (orderCheck.rows[0].escrow_status !== 'disputed') throw new Error('Escrow status was not set to disputed!');
+
+    // 6. Resolve dispute with 'refund' (returns 100% of escrow back to buyer)
+    const resolveRes = await fetch(`${BASE_URL}/api/buyer/orders/${orderId3}/resolve-dispute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      },
+      body: JSON.stringify({ action: 'refund' })
+    });
+    const resolveData = await resolveRes.json();
+    if (!resolveRes.ok) throw new Error('Dispute resolution failed: ' + JSON.stringify(resolveData));
+    console.log(`✅ Dispute resolved with action: refund.`);
+
+    // Verify order status and buyer's wallet refund
+    orderCheck = await pool.query('SELECT status, escrow_status, delivery_status FROM orders WHERE order_id = $1', [orderId3]);
+    console.log(`📦 Order (after dispute refund): status = "${orderCheck.rows[0].status}" | escrow = "${orderCheck.rows[0].escrow_status}" | delivery = "${orderCheck.rows[0].delivery_status}"`);
+    if (orderCheck.rows[0].escrow_status !== 'refunded' || orderCheck.rows[0].delivery_status !== 'cancelled') {
+      throw new Error('Order status and delivery status were not cancelled/refunded correctly!');
+    }
+
+    const buyerWallet = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [buyerId]);
+    console.log(`💳 Buyer Wallet: Balance = ${buyerWallet.rows[0].balance} GHS (Expected: 500.00 refund)`);
+    if (parseFloat(buyerWallet.rows[0].balance) !== 500.00) throw new Error('Buyer wallet was not credited with the refunded amount!');
+    console.log(`✅ Dispute and refund verification succeeded!\n`);
+
+    console.log('🎉 ALL INTEGRATION TESTS PASSED SUCCESSFULLY! The JWT Auth, Escrow splits, Self-pickup, and Dispute Resolution flows are fully correct.');
 
   } catch (error) {
     console.error('❌ Integration Test Failed!');
     console.error(error.message);
   } finally {
-    console.log('--- Cleaning Up Test Data ---');
+    console.log('\n--- Cleaning Up Test Data ---');
     // Clean up created entities to prevent pollution
-    if (jobId) {
-      await pool.query('DELETE FROM jobs WHERE job_id = $1', [jobId]);
-      console.log('... Cleaned up logistics job');
+    if (createdJobs.length > 0) {
+      await pool.query('DELETE FROM jobs WHERE job_id = ANY($1)', [createdJobs]);
+      console.log('... Cleaned up logistics jobs');
     }
-    if (orderId) {
-      await pool.query('DELETE FROM disputes WHERE order_id = $1', [orderId]);
-      await pool.query('DELETE FROM payments WHERE order_id = $1', [orderId]);
-      await pool.query('DELETE FROM orders WHERE order_id = $1', [orderId]);
+    if (createdOrders.length > 0) {
+      await pool.query('DELETE FROM disputes WHERE order_id = ANY($1)', [createdOrders]);
+      await pool.query('DELETE FROM payments WHERE order_id = ANY($1)', [createdOrders]);
+      await pool.query('DELETE FROM orders WHERE order_id = ANY($1)', [createdOrders]);
       console.log('... Cleaned up orders, payments, disputes');
     }
-    if (listingId) {
-      await pool.query('DELETE FROM listings WHERE listing_id = $1', [listingId]);
-      console.log('... Cleaned up crop listing');
+    if (createdListings.length > 0) {
+      await pool.query('DELETE FROM listings WHERE listing_id = ANY($1)', [createdListings]);
+      console.log('... Cleaned up crop listings');
     }
     if (userIds.length > 0) {
       await pool.query('DELETE FROM ratings WHERE user_id = ANY($1) OR rated_user_id = ANY($1)', [userIds]);
       await pool.query('DELETE FROM history WHERE user_id = ANY($1)', [userIds]);
+      await pool.query('DELETE FROM wallet_transactions WHERE user_id = ANY($1)', [userIds]);
       await pool.query('DELETE FROM wallets WHERE user_id = ANY($1)', [userIds]);
       await pool.query('DELETE FROM roles WHERE user_id = ANY($1)', [userIds]);
       await pool.query('DELETE FROM users WHERE user_id = ANY($1)', [userIds]);

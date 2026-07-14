@@ -1,30 +1,26 @@
+const jwt = require("jsonwebtoken");
 const pool = require("../database");
 
-const authenticateUser = async (req, res, next) => {
-  const userId = req.headers["x-user-id"];
+const JWT_SECRET = process.env.JWT_SECRET || "agrimate_secret_key";
 
-  if (!userId) {
-    return res.status(401).json({ error: "Unauthorized. Missing X-User-Id header." });
+const authenticateUser = async (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized. Missing or invalid Authorization header." });
   }
 
+  const token = authHeader.split(" ")[1];
+
   try {
-    const userResult = await pool.query(
-      `SELECT u.user_id, u.username, u.email, u.phone_number, u.region, r.role 
-       FROM users u 
-       LEFT JOIN roles r ON u.user_id = r.user_id 
-       WHERE u.user_id = $1`,
-      [userId]
-    );
-
-    if (userResult.rows.length === 0) {
-      return res.status(401).json({ error: "Unauthorized. User not found." });
-    }
-
-    req.user = userResult.rows[0];
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // Decoded payload contains: { user_id, username, role, region, vehicleNumber }
+    req.user = decoded;
     next();
   } catch (err) {
     console.error("❌ Error in auth middleware:", err.message);
-    res.status(500).json({ error: "Internal server error in auth middleware" });
+    return res.status(401).json({ error: "Unauthorized. Invalid token." });
   }
 };
 

@@ -33,6 +33,8 @@ router.get("/payments", buyerController.getPaymentHistory);
 router.post("/ratings", buyerController.rateFarmer);
 router.get("/farmers/:id", buyerController.getFarmerProfile);
 router.post("/orders/:id/dispute", buyerController.raiseDispute);
+router.post("/orders/:id/self-pickup", buyerController.selfPickup);
+router.post("/orders/:id/resolve-dispute", buyerController.resolveDispute);
 
 /* ==========================================================================
    5. Analytics Routes

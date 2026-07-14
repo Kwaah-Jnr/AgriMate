@@ -243,8 +243,11 @@ exports.acceptOffer = async (req, res) => {
       return res.status(400).json({ error: `Offer is already in '${offer.status}' state.` });
     }
 
-    // 1. Accept order
-    await client.query("UPDATE orders SET status = 'accepted', updated_at = NOW() WHERE order_id = $1", [orderId]);
+    // 1. Accept order and set initial escrow and delivery status
+    await client.query(
+      "UPDATE orders SET status = 'accepted', escrow_status = 'unfunded', delivery_status = 'pending', updated_at = NOW() WHERE order_id = $1",
+      [orderId]
+    );
 
     // 2. Mark listing as accepted
     await client.query("UPDATE listings SET status = 'accepted' WHERE listing_id = $1", [offer.listings_id]);
@@ -255,11 +258,11 @@ exports.acceptOffer = async (req, res) => {
     const newEscrow = parseFloat(wallet.escrow_balance) + orderTotal;
     await client.query("UPDATE wallets SET escrow_balance = $1, updated_at = NOW() WHERE user_id = $2", [newEscrow, userId]);
 
-    // 4. Create record in payments table
+    // 4. Create record in payments table matching the new schema
     await client.query(
-      `INSERT INTO payments (order_id, transaction_id, status) 
-       VALUES ($1, $2, 'pending')`,
-      [orderId, `TXN-ESC-${orderId}-${Date.now().toString().slice(-4)}`]
+      `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+       VALUES ($1, $2, $3, 'escrow_lock', 'pending', $4)`,
+      [orderId, offer.buyer_id, orderTotal, `Escrow of ${orderTotal} GHS accepted, pending funding.`]
     );
 
     // 5. Log history
@@ -351,12 +354,54 @@ exports.fulfillOrder = async (req, res) => {
       return res.status(403).json({ error: "Forbidden. You do not own the listing associated with this order." });
     }
 
-    if (order.status !== "accepted" && order.status !== "escrow_funded") {
+    if (order.status !== "accepted" && order.status !== "escrow_funded" && order.status !== "ready_for_pickup") {
       await client.query("ROLLBACK");
       return res.status(400).json({ error: `Order must be in 'accepted' or 'escrow_funded' status to mark ready. Current status: '${order.status}'` });
     }
 
-    await client.query("UPDATE orders SET status = 'ready_for_pickup', updated_at = NOW() WHERE order_id = $1", [orderId]);
+    let escrowReleased = false;
+    const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
+    const releaseAmount = orderTotal * 0.5;
+
+    if (order.escrow_status === 'funded') {
+      // 1. Release 50% escrow to farmer settled balance
+      const farmerWallet = await getOrCreateWallet(client, userId);
+      const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - releaseAmount);
+      const newFarmerBalance = parseFloat(farmerWallet.balance) + releaseAmount;
+      await client.query(
+        "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
+        [newFarmerBalance, newFarmerEscrow, userId]
+      );
+
+      // 2. Update order status to ready_for_pickup and escrow_status to half_released
+      await client.query(
+        "UPDATE orders SET status = 'ready_for_pickup', escrow_status = 'half_released', delivery_status = 'pending', updated_at = NOW() WHERE order_id = $1",
+        [orderId]
+      );
+
+      // 3. Create payments record for the 50% release
+      await client.query(
+        `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+         VALUES ($1, $2, $3, 'release', 'confirmed', $4)`,
+        [orderId, order.buyer_id, releaseAmount, `50% escrow released to farmer on order fulfillment.`]
+      );
+
+      // 4. Create wallet transaction record
+      await client.query(
+        `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+         VALUES ($1, 'escrow', $2, 'success', $3)`,
+        [userId, releaseAmount, `50% escrow released on order fulfillment.`]
+      );
+
+      await logHistory(client, userId, "escrow_half_released", orderId, `Released 50% escrow (${releaseAmount} GHS) on fulfillment.`);
+      escrowReleased = true;
+    } else {
+      // Just update status to ready_for_pickup
+      await client.query(
+        "UPDATE orders SET status = 'ready_for_pickup', delivery_status = 'pending', updated_at = NOW() WHERE order_id = $1",
+        [orderId]
+      );
+    }
     
     // Create matching available job for transporters
     const distanceKm = Math.floor(Math.random() * 100) + 20; // 20 to 120 km
@@ -365,15 +410,18 @@ exports.fulfillOrder = async (req, res) => {
     const qrDelivery = `QR-DELIVERY-${orderId}-${Math.floor(Math.random() * 900) + 100}`;
 
     await client.query(
-      `INSERT INTO jobs (order_id, distance_km, payout, status, qr_pickup, qr_delivery) 
-       VALUES ($1, $2, $3, 'available', $4, $5)`,
+      `INSERT INTO jobs (order_id, distance_km, payout, status, qr_pickup, qr_delivery, flat_fee) 
+       VALUES ($1, $2, $3, 'available', $4, $5, 100.00)`,
       [orderId, distanceKm, payout, qrPickup, qrDelivery]
     );
 
     await logHistory(client, userId, "order_ready_for_pickup", orderId, `Marked order ID ${orderId} as ready for pickup. Created logistics job.`);
 
     await client.query("COMMIT");
-    res.json({ message: "Order marked ready for pickup successfully. Logistics job is now available." });
+    res.json({ 
+      message: "Order marked ready for pickup successfully. Logistics job is now available.", 
+      escrow_status: escrowReleased ? 'half_released' : order.escrow_status 
+    });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Error fulfilling order:", err.message);
