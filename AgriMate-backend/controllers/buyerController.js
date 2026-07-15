@@ -581,7 +581,7 @@ exports.getAnalytics = async (req, res) => {
 
 // Helper to lazily create or fetch a wallet
 async function getOrCreateWallet(client, userId) {
-  const existing = await client.query("SELECT * FROM wallets WHERE user_id = $1", [userId]);
+  const existing = await client.query("SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE", [userId]);
   if (existing.rows.length > 0) {
     return existing.rows[0];
   }
@@ -831,5 +831,35 @@ exports.resolveDispute = async (req, res) => {
     res.status(500).json({ error: "Internal server error: " + err.message });
   } finally {
     client.release();
+  }
+};
+
+exports.getOrderLocation = async (req, res) => {
+  const orderId = req.params.id;
+  const buyerId = req.user.user_id;
+
+  try {
+    // Verify that the order belongs to this buyer
+    const orderCheck = await pool.query(
+      `SELECT transporter_latitude, transporter_longitude, location_updated_at, delivery_status 
+       FROM orders 
+       WHERE order_id = $1 AND buyer_id = $2`,
+      [orderId, buyerId]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ error: "Order not found or unauthorized." });
+    }
+
+    const order = orderCheck.rows[0];
+    res.json({
+      latitude: order.transporter_latitude ? parseFloat(order.transporter_latitude) : null,
+      longitude: order.transporter_longitude ? parseFloat(order.transporter_longitude) : null,
+      updated_at: order.location_updated_at,
+      delivery_status: order.delivery_status
+    });
+  } catch (err) {
+    console.error("❌ Error fetching order location for buyer:", err.message);
+    res.status(500).json({ error: "Internal server error" });
   }
 };

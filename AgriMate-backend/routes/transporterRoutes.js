@@ -18,6 +18,7 @@ router.post("/jobs/:id/claim", transporterController.claimJob);
    ========================================================================== */
 router.post("/jobs/:id/confirm-pickup", transporterController.confirmPickup);
 router.post("/jobs/:id/confirm-delivery", transporterController.confirmDelivery);
+router.post("/jobs/:id/location", transporterController.updateJobLocation);
 
 /* ==========================================================================
    3. Payments & Earnings Routes

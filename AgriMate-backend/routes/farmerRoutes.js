@@ -23,6 +23,7 @@ router.get("/offers", farmerController.getOffers);
 router.post("/offers/:id/accept", farmerController.acceptOffer);
 router.post("/offers/:id/reject", farmerController.rejectOffer);
 router.post("/orders/:id/fulfill", farmerController.fulfillOrder);
+router.get("/orders/:id/location", farmerController.getOrderLocation);
 
 /* ==========================================================================
    3. Wallet & Payments Routes

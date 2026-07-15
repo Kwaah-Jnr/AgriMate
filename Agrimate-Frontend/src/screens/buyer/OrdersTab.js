@@ -10,10 +10,22 @@ import {
   Modal,
   Platform,
   TouchableOpacity,
+  Linking,
 } from 'react-native';
 import { Card, Button, HelperText, TextInput } from 'react-native-paper';
 import { api } from '../../services/api';
-import { Clock, Calendar, CheckCircle2, ShieldCheck, ArrowRight, User, QrCode, Truck } from 'lucide-react-native';
+import { Clock, Calendar, CheckCircle2, ShieldCheck, ArrowRight, User, QrCode, Truck, Compass } from 'lucide-react-native';
+
+let MapView, Marker;
+try {
+  const Maps = require('react-native-maps');
+  MapView = Maps.default;
+  Marker = Maps.Marker;
+} catch (e) {
+  MapView = null;
+  Marker = null;
+}
+
 
 export default function OrdersTab() {
   const [orders, setOrders] = useState([]);
@@ -51,6 +63,46 @@ export default function OrdersTab() {
   useEffect(() => {
     loadOrders();
   }, []);
+
+  const [orderLocations, setOrderLocations] = useState({});
+
+  useEffect(() => {
+    let intervalId;
+    const transitOrders = orders.filter(o => o.deliveryStatus === 'transit');
+
+    if (transitOrders.length > 0) {
+      const pollLocations = async () => {
+        const newLocations = { ...orderLocations };
+        for (const order of transitOrders) {
+          try {
+            const loc = await api.fetchBuyerOrderLocation(order.id);
+            newLocations[order.id] = {
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+              updatedAt: loc.updated_at,
+              error: null
+            };
+          } catch (err) {
+            console.error(`Error fetching location for order ${order.id}:`, err);
+            newLocations[order.id] = {
+              ...(newLocations[order.id] || {}),
+              error: err.message || 'Failed to fetch location'
+            };
+          }
+        }
+        setOrderLocations(newLocations);
+      };
+
+      pollLocations();
+      // Poll every 10s for demo tracking
+      intervalId = setInterval(pollLocations, 10000);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [orders]);
+
 
   const handleSimulateSelfPickupScan = async () => {
     if (!selectedOrderForQr) return;
@@ -312,6 +364,84 @@ export default function OrdersTab() {
             Show Delivery QR
           </Button>
         )}
+
+        {item.deliveryStatus === 'transit' && (() => {
+          const loc = orderLocations[item.id];
+          if (!loc) {
+            return (
+              <View style={styles.trackingContainer}>
+                <ActivityIndicator size="small" color="#2563EB" style={{ marginBottom: 6 }} />
+                <Text style={styles.trackingTitle}>📡 Connecting to transporter GPS...</Text>
+              </View>
+            );
+          }
+
+          const hasCoords = loc.latitude && loc.longitude;
+
+          if (MapView && hasCoords && !loc.error) {
+            return (
+              <View style={styles.trackingContainer}>
+                <Text style={styles.trackingTitle}>🚚 Transporter Live Location</Text>
+                <View style={styles.mapMock}>
+                  <MapView
+                    style={styles.map}
+                    initialRegion={{
+                      latitude: loc.latitude,
+                      longitude: loc.longitude,
+                      latitudeDelta: 0.05,
+                      longitudeDelta: 0.05,
+                    }}
+                  >
+                    <Marker
+                      coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
+                      title="Transporter"
+                      description={`Last updated: ${new Date(loc.updatedAt).toLocaleTimeString()}`}
+                    />
+                  </MapView>
+                </View>
+                <Text style={styles.trackingTime}>
+                  Last Ping: {new Date(loc.updatedAt).toLocaleTimeString()}
+                </Text>
+              </View>
+            );
+          }
+
+          return (
+            <View style={styles.trackingContainer}>
+              <View style={styles.trackingHeader}>
+                <Compass size={14} color="#2563EB" style={{ marginRight: 6 }} />
+                <Text style={styles.trackingTitle}>Transporter GPS Coordinates</Text>
+              </View>
+              {hasCoords ? (
+                <View style={styles.fallbackContent}>
+                  <Text style={styles.coordsText}>
+                    📍 Latitude: <Text style={styles.bold}>{loc.latitude.toFixed(6)}</Text>
+                  </Text>
+                  <Text style={styles.coordsText}>
+                    📍 Longitude: <Text style={styles.bold}>{loc.longitude.toFixed(6)}</Text>
+                  </Text>
+                  <Text style={styles.trackingTime}>
+                    Last Ping: {new Date(loc.updatedAt).toLocaleTimeString()}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.mapLinkBtn}
+                    onPress={() => {
+                      const url = Platform.select({
+                        ios: `maps://0,0?q=${loc.latitude},${loc.longitude}`,
+                        android: `geo:0,0?q=${loc.latitude},${loc.longitude}(Transporter)`,
+                      }) || `https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}`;
+                      Linking.openURL(url).catch(err => console.error("Error opening maps link:", err));
+                    }}
+                  >
+                    <Text style={styles.mapLinkText}>🗺️ Open in Device Maps</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Text style={styles.coordsText}>📡 Driver is in transit. Waiting for first coordinate ping...</Text>
+              )}
+            </View>
+          );
+        })()}
       </Card.Content>
     </Card>
   );
@@ -673,5 +803,65 @@ const styles = StyleSheet.create({
   modalScanBtn: {
     flex: 1.5,
     borderRadius: 6,
+  },
+  trackingContainer: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+  },
+  trackingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  trackingTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  fallbackContent: {
+    marginTop: 4,
+  },
+  coordsText: {
+    fontSize: 12,
+    color: '#475569',
+    marginBottom: 4,
+  },
+  bold: {
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  trackingTime: {
+    fontSize: 10,
+    color: '#94A3B8',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  mapLinkBtn: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CBD5E1',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  mapLinkText: {
+    fontSize: 11,
+    color: '#2563EB',
+    fontWeight: '700',
+  },
+  mapMock: {
+    height: 120,
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
 });

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const pool = require('./database');
 
 const BASE_URL = 'http://localhost:' + (process.env.PORT || '5000');
@@ -247,6 +247,41 @@ async function runTests() {
       body: JSON.stringify({ qr_code: qr_pickup })
     });
     if (!pickupRes.ok) throw new Error('Pickup confirmation failed');
+
+    // === Geolocation Integration Tests ===
+    console.log('📍 Testing Transporter Geolocation Updates & Fetching...');
+    
+    const locPostRes = await fetch(`${BASE_URL}/api/transporter/jobs/${orderId1}/location`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${transporterToken}`
+      },
+      body: JSON.stringify({ latitude: 5.6037, longitude: -0.1870 })
+    });
+    const locPostData = await locPostRes.json();
+    if (!locPostRes.ok) throw new Error('Post transporter location failed: ' + JSON.stringify(locPostData));
+    console.log('✅ Geolocation: Posted coordinates from Transporter successfully');
+
+    const buyerLocRes = await fetch(`${BASE_URL}/api/buyer/orders/${orderId1}/location`, {
+      headers: { 'Authorization': `Bearer ${buyerToken}` }
+    });
+    const buyerLocData = await buyerLocRes.json();
+    if (!buyerLocRes.ok) throw new Error('Fetch location from Buyer failed: ' + JSON.stringify(buyerLocData));
+    console.log(`✅ Geolocation: Buyer successfully fetched coordinates: ${buyerLocData.latitude}, ${buyerLocData.longitude}`);
+    if (buyerLocData.latitude !== 5.6037 || buyerLocData.longitude !== -0.1870) {
+      throw new Error('Coordinates mismatch on buyer fetch!');
+    }
+
+    const farmerLocRes = await fetch(`${BASE_URL}/api/farmer/orders/${orderId1}/location`, {
+      headers: { 'Authorization': `Bearer ${farmerToken}` }
+    });
+    const farmerLocData = await farmerLocRes.json();
+    if (!farmerLocRes.ok) throw new Error('Fetch location from Farmer failed: ' + JSON.stringify(farmerLocData));
+    console.log(`✅ Geolocation: Farmer successfully fetched coordinates: ${farmerLocData.latitude}, ${farmerLocData.longitude}`);
+    if (farmerLocData.latitude !== 5.6037 || farmerLocData.longitude !== -0.1870) {
+      throw new Error('Coordinates mismatch on farmer fetch!');
+    }
 
     // Verify no double release occurred
     farmerWallet = await pool.query('SELECT balance, escrow_balance FROM wallets WHERE user_id = $1', [farmerId]);

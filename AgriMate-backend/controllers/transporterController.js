@@ -2,7 +2,7 @@ const pool = require("../database");
 
 // Helper to lazily create or fetch a wallet
 async function getOrCreateWallet(client, userId) {
-  const existing = await client.query("SELECT * FROM wallets WHERE user_id = $1", [userId]);
+  const existing = await client.query("SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE", [userId]);
   if (existing.rows.length > 0) {
     return existing.rows[0];
   }
@@ -539,6 +539,41 @@ exports.getAnalytics = async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error fetching transporter analytics:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+exports.updateJobLocation = async (req, res) => {
+  const orderId = req.params.id;
+  const transporterId = req.user.user_id;
+  const { latitude, longitude } = req.body;
+
+  if (latitude === undefined || longitude === undefined) {
+    return res.status(400).json({ error: "Latitude and longitude are required." });
+  }
+
+  try {
+    // 1. Verify that this transporter is assigned to the job related to this order
+    const jobCheck = await pool.query(
+      "SELECT 1 FROM jobs WHERE order_id = $1 AND transporter_id = $2",
+      [orderId, transporterId]
+    );
+
+    if (jobCheck.rows.length === 0) {
+      return res.status(403).json({ error: "Unauthorized. You are not assigned to this delivery." });
+    }
+
+    // 2. Update the order's location
+    await pool.query(
+      `UPDATE orders 
+       SET transporter_latitude = $1, transporter_longitude = $2, location_updated_at = NOW() 
+       WHERE order_id = $3`,
+      [latitude, longitude, orderId]
+    );
+
+    res.json({ message: "Location updated successfully." });
+  } catch (err) {
+    console.error("❌ Error updating job location:", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };

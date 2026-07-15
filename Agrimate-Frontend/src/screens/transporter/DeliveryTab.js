@@ -13,6 +13,8 @@ import {
 import { Card, Button, Portal } from 'react-native-paper';
 import { api } from '../../services/api';
 import { Truck, MapPin, Navigation, Compass, Calendar, QrCode, Scan, ShieldAlert } from 'lucide-react-native';
+import * as Location from 'expo-location';
+
 
 export default function DeliveryTab() {
   const [activeJobs, setActiveJobs] = useState([]);
@@ -45,6 +47,45 @@ export default function DeliveryTab() {
   useEffect(() => {
     loadActiveJobs();
   }, []);
+
+  useEffect(() => {
+    let intervalId;
+    const activeTransitJob = activeJobs.find(job => job.deliveryStatus === 'transit');
+
+    if (activeTransitJob) {
+      const trackLocation = async () => {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status !== 'granted') {
+            console.warn('Location permission denied');
+            return;
+          }
+          const location = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (location && location.coords) {
+            await api.updateOrderLocation(activeTransitJob.id, {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            });
+            console.log(`Transporter location updated: ${location.coords.latitude}, ${location.coords.longitude}`);
+          }
+        } catch (error) {
+          console.error('Error tracking transporter location:', error);
+        }
+      };
+
+      // Run immediately
+      trackLocation();
+      // Set up periodic tracking (every 15s for testing, standard is 5m)
+      intervalId = setInterval(trackLocation, 15000);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeJobs]);
+
 
   const openScanner = (job, type) => {
     setSelectedJob(job);
@@ -125,6 +166,13 @@ export default function DeliveryTab() {
           <View style={styles.disputeContainer}>
             <ShieldAlert size={14} color="#EF4444" style={{ marginRight: 6 }} />
             <Text style={styles.disputeText}>CONTRACT DISPUTED (CARGO LOCKED)</Text>
+          </View>
+        )}
+
+        {item.deliveryStatus === 'transit' && (
+          <View style={styles.gpsContainer}>
+            <Compass size={14} color="#2563EB" style={{ marginRight: 6 }} />
+            <Text style={styles.gpsText}>📡 GPS Live Tracking Active (Lightweight Mode)</Text>
           </View>
         )}
 
@@ -328,6 +376,20 @@ const styles = StyleSheet.create({
   disputeText: {
     fontSize: 10,
     color: '#EF4444',
+    fontWeight: '700',
+  },
+  gpsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginBottom: 12,
+  },
+  gpsText: {
+    fontSize: 10,
+    color: '#2563EB',
     fontWeight: '700',
   },
   routeSection: {

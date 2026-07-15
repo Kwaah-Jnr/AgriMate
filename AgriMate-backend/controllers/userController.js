@@ -1,13 +1,16 @@
 const pool = require("../database");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+
+const JWT_SECRET = process.env.JWT_SECRET || "agrimate_secret_key";
 
 // Logic to register a new user
 const registerUser = async (req, res) => {
-  const { full_name, username, email, phone, phone_number, region, password, pin, role, vehicle_number, vehicleNumber } = req.body;
+  const { full_name, fullName, username, email, phone, phone_number, phoneNumber, region, password, pin, role, vehicle_number, vehicleNumber } = req.body;
 
-  const usernameVal = full_name || username;
+  const usernameVal = fullName || full_name || username;
   const emailVal = email;
-  const phoneVal = phone || phone_number;
+  const phoneVal = phone || phone_number || phoneNumber;
   const passwordVal = password || pin;
   const roleVal = role ? String(role).trim().toLowerCase() : 'farmer';
   const vehicleNumVal = vehicle_number || vehicleNumber || null;
@@ -45,8 +48,22 @@ const registerUser = async (req, res) => {
     // 4. Save everything to the database
     await client.query("COMMIT");
 
+    // Generate JWT token for auto-login
+    const token = jwt.sign(
+      {
+        user_id: userId,
+        username: newUser.rows[0].username,
+        role: roleVal,
+        region: newUser.rows[0].region,
+        vehicleNumber: newUser.rows[0].vehicle_number
+      },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
     res.status(201).json({
       message: "User and Role registered successfully!",
+      token,
       user: {
         user_id: userId,
         username: newUser.rows[0].username,

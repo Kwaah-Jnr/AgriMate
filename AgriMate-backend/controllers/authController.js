@@ -5,7 +5,8 @@ const jwt = require("jsonwebtoken");
 const JWT_SECRET = process.env.JWT_SECRET || "agrimate_secret_key";
 
 const loginUser = async (req, res) => {
-  const { identifier, password, pin } = req.body;
+  const { identifier, emailOrUsername, password, pin } = req.body;
+  const identifierVal = identifier || emailOrUsername;
   const passwordVal = password || pin;
 
   try {
@@ -15,7 +16,7 @@ const loginUser = async (req, res) => {
        FROM users u 
        LEFT JOIN roles r ON u.user_id = r.user_id 
        WHERE u.username = $1 OR u.phone_number = $1 OR u.email = $1`,
-      [identifier]
+      [identifierVal]
     );
 
     // 2. Check if user exists

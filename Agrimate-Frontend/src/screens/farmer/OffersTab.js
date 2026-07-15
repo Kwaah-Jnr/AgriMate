@@ -14,6 +14,17 @@ import {
 import { api } from '../../services/api';
 import { Check, X, Box, QrCode } from 'lucide-react-native';
 
+let MapView, Marker;
+try {
+  const Maps = require('react-native-maps');
+  MapView = Maps.default;
+  Marker = Maps.Marker;
+} catch (e) {
+  MapView = null;
+  Marker = null;
+}
+
+
 export default function OffersTab() {
   const [offers, setOffers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,6 +48,49 @@ export default function OffersTab() {
   useEffect(() => {
     fetchFarmerOffers();
   }, []);
+
+  const [orderLocations, setOrderLocations] = useState({});
+  const [toggledMaps, setToggledMaps] = useState({});
+
+  useEffect(() => {
+    let intervalId;
+    const transitOrders = offers.filter(
+      o => o.status === 'fulfilled' && o.escrowStatus === 'half_released'
+    );
+
+    if (transitOrders.length > 0) {
+      const pollLocations = async () => {
+        const newLocations = { ...orderLocations };
+        for (const order of transitOrders) {
+          try {
+            const loc = await api.fetchFarmerOrderLocation(order.id);
+            newLocations[order.id] = {
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+              updatedAt: loc.updated_at,
+              error: null
+            };
+          } catch (err) {
+            console.error(`Error fetching location for order ${order.id}:`, err);
+            newLocations[order.id] = {
+              ...(newLocations[order.id] || {}),
+              error: err.message || 'Failed to fetch location'
+            };
+          }
+        }
+        setOrderLocations(newLocations);
+      };
+
+      pollLocations();
+      // Poll every 10s for demo tracking
+      intervalId = setInterval(pollLocations, 10000);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [offers]);
+
 
   const handleAcceptOffer = async (id) => {
     setIsLoading(true);
@@ -188,6 +242,78 @@ export default function OffersTab() {
             </Text>
           </View>
         )}
+
+        {item.status === 'fulfilled' && item.escrowStatus === 'half_released' && (() => {
+          const loc = orderLocations[item.id];
+          const isMapEnabled = toggledMaps[item.id] || false;
+
+          if (!loc) {
+            return (
+              <View style={styles.trackingContainer}>
+                <ActivityIndicator size="small" color="#2563EB" style={{ marginBottom: 6 }} />
+                <Text style={styles.trackingTitle}>📡 Connecting to transporter GPS...</Text>
+              </View>
+            );
+          }
+
+          const hasCoords = loc.latitude && loc.longitude;
+
+          return (
+            <View style={styles.trackingContainer}>
+              <View style={styles.trackingHeader}>
+                <Text style={styles.trackingTitle}>🚚 Transporter Live Location</Text>
+                <View style={styles.toggleRow}>
+                  <Text style={styles.toggleLabel}>Map View</Text>
+                  <TouchableOpacity
+                    style={[styles.toggleBtn, isMapEnabled && styles.toggleBtnActive]}
+                    onPress={() => setToggledMaps(prev => ({ ...prev, [item.id]: !isMapEnabled }))}
+                  >
+                    <View style={[styles.toggleSwitch, isMapEnabled && styles.toggleSwitchActive]} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {hasCoords ? (
+                isMapEnabled && MapView && !loc.error ? (
+                  <View style={styles.mapMock}>
+                    <MapView
+                      style={styles.map}
+                      initialRegion={{
+                        latitude: loc.latitude,
+                        longitude: loc.longitude,
+                        latitudeDelta: 0.05,
+                        longitudeDelta: 0.05,
+                      }}
+                    >
+                      <Marker
+                        coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
+                        title="Transporter"
+                        description={`Last updated: ${new Date(loc.updatedAt).toLocaleTimeString()}`}
+                      />
+                    </MapView>
+                  </View>
+                ) : (
+                  <View style={styles.fallbackContent}>
+                    <Text style={styles.coordsText}>
+                      📍 Latitude: <Text style={styles.bold}>{loc.latitude.toFixed(6)}</Text>
+                    </Text>
+                    <Text style={styles.coordsText}>
+                      📍 Longitude: <Text style={styles.bold}>{loc.longitude.toFixed(6)}</Text>
+                    </Text>
+                  </View>
+                )
+              ) : (
+                <Text style={styles.coordsText}>📡 Waiting for coordinates ping...</Text>
+              )}
+
+              {hasCoords && (
+                <Text style={styles.trackingTime}>
+                  Last Ping: {new Date(loc.updatedAt).toLocaleTimeString()}
+                </Text>
+              )}
+            </View>
+          );
+        })()}
       </View>
     );
   };
@@ -492,5 +618,80 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
+  },
+  trackingContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderColor: '#E2E8F0',
+    borderWidth: 1,
+  },
+  trackingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  trackingTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  toggleLabel: {
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  toggleBtn: {
+    width: 28,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#CBD5E1',
+    padding: 2,
+  },
+  toggleBtnActive: {
+    backgroundColor: '#059669',
+  },
+  toggleSwitch: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  toggleSwitchActive: {
+    transform: [{ translateX: 12 }],
+  },
+  fallbackContent: {
+    marginTop: 4,
+  },
+  coordsText: {
+    fontSize: 12,
+    color: '#475569',
+    marginBottom: 4,
+  },
+  bold: {
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  trackingTime: {
+    fontSize: 10,
+    color: '#94A3B8',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  mapMock: {
+    height: 120,
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginTop: 8,
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
 });

@@ -20,6 +20,7 @@ router.post("/offers", buyerController.placeOffer);
 router.put("/offers/:id", buyerController.updateOffer);
 router.delete("/offers/:id", buyerController.cancelOffer);
 router.get("/orders", buyerController.getOwnOrders);
+router.get("/orders/:id/location", buyerController.getOrderLocation);
 
 /* ==========================================================================
    3. Payments & Escrow Routes

@@ -37,7 +37,7 @@ export const api = {
 
   // Manual Signup
   registerUser: async (userData) => {
-    const response = await fetch(`${BASE_URL}/api/users/registerUser`, {
+    const response = await fetch(`${BASE_URL}/api/users/register`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(userData),
@@ -420,6 +420,31 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ pickupToken, vehicleNumber }),
+    });
+    return handleResponse(response);
+  },
+
+  updateOrderLocation: async (id, { latitude, longitude }) => {
+    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/location`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ latitude, longitude }),
+    });
+    return handleResponse(response);
+  },
+
+  fetchBuyerOrderLocation: async (id) => {
+    const response = await fetch(`${BASE_URL}/api/buyer/orders/${id}/location`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  fetchFarmerOrderLocation: async (id) => {
+    const response = await fetch(`${BASE_URL}/api/farmer/orders/${id}/location`, {
+      method: 'GET',
+      headers: getHeaders(),
     });
     return handleResponse(response);
   },
