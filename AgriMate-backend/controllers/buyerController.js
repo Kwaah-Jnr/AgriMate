@@ -990,4 +990,194 @@ exports.depositFunds = async (req, res) => {
   }
 };
 
+exports.getBuyerDisputes = async (req, res) => {
+  const buyerId = req.user.user_id;
+
+  try {
+    const result = await pool.query(
+      `SELECT d.dispute_id, d.order_id, d.reason, d.status, d.created_at,
+              l.crop_name, u.username as farmer_name
+       FROM disputes d
+       JOIN orders o ON d.order_id = o.order_id
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON l.user_id = u.user_id
+       WHERE d.buyer_id = $1
+       ORDER BY d.created_at DESC`,
+      [buyerId]
+    );
+
+    const mapped = result.rows.map(row => {
+      let category = "General";
+      let details = row.reason || "";
+      
+      if (row.reason && row.reason.startsWith("[")) {
+        const match = row.reason.match(/^\[(.*?)\]\s*(.*)$/);
+        if (match) {
+          category = match[1];
+          details = match[2];
+        }
+      }
+      
+      return {
+        id: row.dispute_id,
+        disputeId: row.dispute_id,
+        orderId: row.order_id,
+        category,
+        details,
+        status: row.status,
+        createdAt: row.created_at,
+        farmerName: row.farmer_name,
+        cropName: row.crop_name
+      };
+    });
+
+    res.json(mapped);
+  } catch (err) {
+    console.error("❌ Error fetching disputes:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+exports.resolveDisputeById = async (req, res) => {
+  const disputeId = req.params.id;
+  const { action } = req.body;
+  const buyerId = req.user.user_id;
+
+  if (!action || (action !== 'cancel' && action !== 'refund')) {
+    return res.status(400).json({ error: "A valid dispute resolution action ('cancel' or 'refund') is required." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Fetch dispute details by dispute_id
+    const disputeQuery = await client.query(
+      "SELECT * FROM disputes WHERE dispute_id = $1 AND status = 'open'",
+      [disputeId]
+    );
+    if (disputeQuery.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Open dispute not found." });
+    }
+    const dispute = disputeQuery.rows[0];
+    const orderId = dispute.order_id;
+
+    // Fetch order details
+    const orderQuery = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+    const order = orderQuery.rows[0];
+    const farmerId = order.farmer_id;
+    const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
+
+    // Determine the escrow status before dispute
+    const prevStatus = dispute.previous_escrow_status || order.previous_escrow_status || 'funded';
+
+    if (action === 'cancel') {
+      // 1. Restore previous escrow status and keep order status
+      let restoredOrderStatus = 'escrow_funded';
+      if (prevStatus === 'half_released') {
+        restoredOrderStatus = 'picked_up';
+      }
+      
+      await client.query(
+        "UPDATE orders SET status = $1, escrow_status = $2, updated_at = NOW() WHERE order_id = $3",
+        [restoredOrderStatus, prevStatus, orderId]
+      );
+
+      // 2. Set dispute status to resolved
+      await client.query(
+        "UPDATE disputes SET status = 'resolved', resolved_at = NOW() WHERE dispute_id = $1",
+        [disputeId]
+      );
+
+      await logHistory(client, buyerId, "dispute_cancelled", disputeId, `Cancelled dispute on order ID ${orderId}. Restored escrow status to ${prevStatus}.`);
+      
+      await client.query("COMMIT");
+      return res.json({ message: "Dispute cancelled successfully. Escrow status restored.", order_id: orderId });
+    }
+
+    if (action === 'refund') {
+      // 1. Calculate refund amount (remaining escrow: 100% if funded, 50% if half_released)
+      let refundAmount = 0.00;
+      if (prevStatus === 'half_released') {
+        refundAmount = orderTotal * 0.5;
+      } else {
+        refundAmount = orderTotal;
+      }
+
+      // 2. Deduct refundAmount from farmer's escrow balance and add it to buyer's wallet balance
+      if (refundAmount > 0) {
+        // Farmer wallet update
+        const farmerWallet = await getOrCreateWallet(client, farmerId);
+        const newFarmerEscrow = Math.max(0, parseFloat(farmerWallet.escrow_balance) - refundAmount);
+        await client.query(
+          "UPDATE wallets SET escrow_balance = $1, updated_at = NOW() WHERE user_id = $2",
+          [newFarmerEscrow, farmerId]
+        );
+
+        // Buyer wallet update
+        const buyerWallet = await getOrCreateWallet(client, buyerId);
+        const newBuyerBalance = parseFloat(buyerWallet.balance) + refundAmount;
+        await client.query(
+          "UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2",
+          [newBuyerBalance, buyerId]
+        );
+
+        // Create refund payments record
+        await client.query(
+          `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+           VALUES ($1, $2, $3, 'release', 'confirmed', $4)`,
+          [orderId, buyerId, refundAmount, `Refund of ${refundAmount} GHS paid to buyer on dispute resolution.`]
+        );
+
+        // Create wallet transaction record for the buyer's refund
+        await client.query(
+          `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+           VALUES ($1, 'deposit', $2, 'success', $3)`,
+          [buyerId, refundAmount, `Escrow refund received for order ID ${orderId} dispute.`]
+        );
+      }
+
+      // 3. Update order status to cancelled, escrow_status to refunded, and delivery_status to cancelled
+      await client.query(
+        `UPDATE orders 
+         SET status = 'cancelled', escrow_status = 'refunded', delivery_status = 'cancelled', updated_at = NOW() 
+         WHERE order_id = $1`,
+        [orderId]
+      );
+
+      // 4. Set dispute status to resolved/refunded
+      await client.query(
+        "UPDATE disputes SET status = 'refunded', resolved_at = NOW() WHERE dispute_id = $1",
+        [disputeId]
+      );
+
+      // Cancel associated jobs
+      await client.query(
+        "UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE order_id = $1 AND status != 'delivered'",
+        [orderId]
+      );
+
+      await logHistory(client, buyerId, "dispute_refunded", disputeId, `Resolved dispute on order ID ${orderId} with a refund of ${refundAmount} GHS to buyer.`);
+
+      await client.query("COMMIT");
+      return res.json({ message: "Dispute resolved with a refund. Escrow returned to buyer.", order_id: orderId, refund_amount: refundAmount });
+    }
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error in dispute resolution by ID:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+
 

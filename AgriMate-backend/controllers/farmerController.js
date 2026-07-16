@@ -193,7 +193,7 @@ exports.getOffers = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT o.order_id, o.price, o.price as offered_price, o.quantity, o.quantity as offered_quantity, 
-              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at,
+              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
               l.listing_id, l.crop_name, l.grade, l.location as listing_location,
               u.username as buyer_name, u.phone_number as buyer_phone
        FROM orders o

@@ -79,7 +79,7 @@ export default function DashboardScreen() {
         setUnfundedOrdersCount(unfunded);
       }
     } catch (err) {
-      console.error('Error fetching notification counts:', err);
+      console.log('Error fetching notification counts:', err.message || err);
     }
   };
 

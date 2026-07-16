@@ -125,7 +125,7 @@ export default function OffersTab() {
         <View style={styles.cardHeader}>
           <View style={styles.titleRow}>
             <ShoppingBag size={16} color="#12372A" style={{ marginRight: 6 }} />
-            <Text style={styles.cropName}>Yellow Maize</Text>
+            <Text style={styles.cropName}>{item.cropName}</Text>
           </View>
           <View style={[styles.statusBadge, getStatusStyle(item.status)]}>
             <Text style={[styles.statusText, { color: getStatusStyle(item.status).color }]}>

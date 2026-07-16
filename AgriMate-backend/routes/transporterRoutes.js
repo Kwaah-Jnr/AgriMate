@@ -12,6 +12,7 @@ router.use(requireRole("transporter"));
    ========================================================================== */
 router.get("/jobs/available", transporterController.getAvailableJobs);
 router.post("/jobs/:id/claim", transporterController.claimJob);
+router.get("/jobs/active", transporterController.getActiveJobs);
 
 /* ==========================================================================
    2. Delivery Workflow Routes

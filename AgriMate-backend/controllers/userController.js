@@ -53,6 +53,7 @@ const registerUser = async (req, res) => {
       {
         user_id: userId,
         username: newUser.rows[0].username,
+        email: newUser.rows[0].email,
         role: roleVal,
         region: newUser.rows[0].region,
         vehicleNumber: newUser.rows[0].vehicle_number

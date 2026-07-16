@@ -27,16 +27,8 @@ export default function DeliveryTab() {
   const loadActiveJobs = async () => {
     setIsLoading(true);
     try {
-      // Fetch transporter's jobs by loading dashboard details
-      const allOrders = await api.fetchBuyerOrders(); // fetches all orders, we can filter for assigned transporter
-      // Wait! BuyerOrders fetches all orders in the database on this mock backend.
-      // So we can filter them by our assigned transporterId!
-      const dashboard = await api.fetchTransporterDashboard();
-      // Let's filter orders assigned to this transporter that are active (claimed, transit, delivered)
-      const transporterActive = allOrders.filter(
-        o => o.transporterId && o.deliveryStatus !== 'completed'
-      );
-      setActiveJobs(transporterActive);
+      const activeJobsData = await api.fetchTransporterActiveJobs();
+      setActiveJobs(activeJobsData);
     } catch (error) {
       console.error('Error fetching active delivery jobs:', error);
     } finally {

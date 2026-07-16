@@ -41,8 +41,7 @@ export default function DashboardTab({ user, onNavigate }) {
       const data = await api.fetchDashboardSummary();
       setSummary(data);
     } catch (error) {
-      console.error('Error fetching dashboard summary:', error);
-      Alert.alert('Error', 'Failed to retrieve dashboard summary.');
+      console.log('Error fetching dashboard summary:', error.message || error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

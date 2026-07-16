@@ -40,8 +40,7 @@ export default function DashboardTab({ user, onNavigate }) {
       const data = await api.fetchBuyerDashboardSummary();
       setSummary(data);
     } catch (error) {
-      console.error('Error fetching buyer dashboard summary:', error);
-      Alert.alert('Error', 'Failed to retrieve dashboard summary.');
+      console.log('Error fetching buyer dashboard summary:', error.message || error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

@@ -111,7 +111,7 @@ export default function WalletTab() {
         </View>
         <View style={styles.txDetails}>
           <Text style={styles.txDesc} numberOfLines={1}>{item.description}</Text>
-          <Text style={styles.txDate}>{dateStr} • {item.status.toUpperCase()}</Text>
+          <Text style={styles.txDate}>{dateStr} • {(item.status || 'success').toUpperCase()}</Text>
         </View>
         <Text style={[styles.txAmount, { color: amountColor }]}>
           {amountPrefix}GH₵{item.amount.toFixed(2)}

@@ -38,7 +38,7 @@ export default function JobsTab() {
   const handleClaimJob = (job) => {
     Alert.alert(
       'Claim Delivery Route',
-      `Would you like to claim the transportation route for ${job.cropName}?\n\nPayout: GH₵ 100.00 upon delivery.`,
+      `Would you like to claim the transportation route for ${job.cropName}?\n\nPayout: GH₵ ${(parseFloat(job.payout || job.flatFee || 100)).toFixed(2)} upon delivery.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -70,7 +70,7 @@ export default function JobsTab() {
             <Text style={styles.cropName}>{item.cropName}</Text>
           </View>
           <View style={styles.payoutBadge}>
-            <Text style={styles.payoutText}>GH₵ 100.00</Text>
+            <Text style={styles.payoutText}>GH₵ {(parseFloat(item.payout || item.flatFee || 100)).toFixed(2)}</Text>
           </View>
         </View>
 

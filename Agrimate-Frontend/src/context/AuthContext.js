@@ -59,8 +59,8 @@ export const AuthProvider = ({ children }) => {
             setToken(storedToken);
             api.setToken(storedToken);
             setUser({
-              id: claims.id || claims.userId,
-              fullName: claims.fullName || claims.name || 'AgriMate User',
+              id: claims.id || claims.userId || claims.user_id,
+              fullName: claims.fullName || claims.name || claims.username || 'AgriMate User',
               username: claims.username,
               email: claims.email,
               role: claims.role || 'farmer', // default fallback if role not specified
@@ -79,6 +79,10 @@ export const AuthProvider = ({ children }) => {
     };
 
     loadSession();
+
+    api.onUnauthorized(() => {
+      logout();
+    });
   }, []);
 
   // Manual Signup
@@ -168,8 +172,8 @@ export const AuthProvider = ({ children }) => {
       setToken(sessionToken);
       api.setToken(sessionToken);
       setUser(claims ? {
-        id: claims.id || claims.userId,
-        fullName: claims.fullName || claims.name || 'AgriMate User',
+        id: claims.id || claims.userId || claims.user_id,
+        fullName: claims.fullName || claims.name || claims.username || 'AgriMate User',
         username: claims.username,
         email: claims.email,
         role: claims.role || 'farmer',

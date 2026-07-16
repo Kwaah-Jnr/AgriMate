@@ -66,7 +66,7 @@ export default function ListingsTab() {
       quantity: parseFloat(quantity),
       price: parseFloat(price),
       grade,
-      description: description.trim(),
+      description: (description || '').trim(),
     };
 
     setIsLoading(true);
@@ -122,7 +122,7 @@ export default function ListingsTab() {
     setQuantity(item.quantity.toString());
     setPrice(item.price.toString());
     setGrade(item.grade);
-    setDescription(item.description);
+    setDescription(item.description || '');
     setModalVisible(true);
   };
 

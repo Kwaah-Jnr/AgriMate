@@ -577,3 +577,28 @@ exports.updateJobLocation = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+exports.getActiveJobs = async (req, res) => {
+  const transporterId = req.user.user_id;
+
+  try {
+    const result = await pool.query(
+      `SELECT j.job_id as id, j.job_id, j.status as job_status, j.distance_km, j.payout, j.flat_fee,
+              o.order_id, o.status as order_status, o.escrow_status, o.delivery_status,
+              l.crop_name, l.grade,
+              f.username as farmer_name, b.username as buyer_name
+       FROM jobs j
+       JOIN orders o ON j.order_id = o.order_id
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users f ON l.user_id = f.user_id
+       JOIN users b ON o.buyer_id = b.user_id
+       WHERE j.transporter_id = $1 AND j.status != 'delivered' AND j.status != 'cancelled'
+       ORDER BY j.created_at DESC`,
+      [transporterId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching active transporter jobs:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};

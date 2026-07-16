@@ -8,6 +8,7 @@
 const BASE_URL = 'http://10.0.2.2:5000';
 
 let authToken = null;
+let unauthorizedHandler = null;
 
 const getHeaders = () => {
   const headers = {
@@ -19,12 +20,101 @@ const getHeaders = () => {
   return headers;
 };
 
+const toCamel = (obj) => {
+  if (Array.isArray(obj)) {
+    return obj.map(toCamel);
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const next = {};
+    // Calculate total if price and quantity exist but total doesn't
+    if ('price' in obj && 'quantity' in obj && !('total' in obj)) {
+      const p = parseFloat(obj.price);
+      const q = parseFloat(obj.quantity);
+      if (!isNaN(p) && !isNaN(q)) {
+        next.total = p * q;
+      }
+    }
+    for (const key of Object.keys(obj)) {
+      let nextKey = key.replace(/([-_][a-z])/g, (group) =>
+        group.toUpperCase().replace('-', '').replace('_', '')
+      );
+      let val = obj[key];
+      // Map 'A', 'B', 'C' grade from database to 'Grade A', 'Grade B', 'Grade C' for picker
+      if (nextKey === 'grade' && typeof val === 'string') {
+        const gradeVal = val.trim().toUpperCase();
+        if (gradeVal === 'A' || gradeVal === 'B' || gradeVal === 'C') {
+          val = `Grade ${gradeVal}`;
+        }
+      }
+      // Map database 'open' / 'accepted' status to frontend 'active' / 'sold' (only for listings)
+      if (nextKey === 'status' && typeof val === 'string') {
+        const isListing = ('cropName' in obj || 'crop_name' in obj) && !('orderId' in obj || 'order_id' in obj || 'buyerId' in obj || 'buyer_id' in obj || 'transporterId' in obj || 'transporter_id' in obj);
+        if (isListing) {
+          const statusVal = val.trim().toLowerCase();
+          if (statusVal === 'open') {
+            val = 'active';
+          } else if (statusVal === 'accepted') {
+            val = 'sold';
+          }
+        }
+      }
+      // Parse database numeric/decimal fields as floats to support .toFixed() on frontend
+      const floatKeys = ['price', 'balance', 'amount', 'escrowBalance', 'settledBalance', 'payout', 'flatFee', 'averageRating', 'farmerRating', 'ratingScore', 'distanceKm'];
+      if (floatKeys.includes(nextKey) && val !== null && val !== undefined) {
+        val = parseFloat(val);
+      }
+      // Map primary keys to 'id' to support frontend component attributes
+      if (nextKey === 'listingId' || nextKey === 'orderId' || nextKey === 'jobId' || nextKey === 'ratingId' || nextKey === 'walletId' || nextKey === 'disputeId') {
+        next.id = toCamel(val);
+      }
+      next[nextKey] = toCamel(val);
+    }
+    return next;
+  }
+  return obj;
+};
+
+const toSnake = (obj) => {
+  if (Array.isArray(obj)) {
+    return obj.map(toSnake);
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const next = {};
+    for (const key of Object.keys(obj)) {
+      let nextKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+      let val = obj[key];
+      // Map 'Grade A' -> 'A', 'Grade B' -> 'B', etc. for database character varying(1) constraint
+      if (key === 'grade' && typeof val === 'string') {
+        const match = val.match(/Grade\s+([A-C])/i);
+        if (match) {
+          val = match[1];
+        }
+      }
+      // Map frontend 'active' / 'sold' status to database 'open' / 'accepted'
+      if (key === 'status' && typeof val === 'string') {
+        const statusVal = val.trim().toLowerCase();
+        if (statusVal === 'active') {
+          val = 'open';
+        } else if (statusVal === 'sold') {
+          val = 'accepted';
+        }
+      }
+      next[nextKey] = toSnake(val);
+    }
+    return next;
+  }
+  return obj;
+};
+
 const handleResponse = async (response) => {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && unauthorizedHandler) {
+      unauthorizedHandler();
+    }
     throw new Error(data.error || data.message || 'Something went wrong');
   }
-  return data;
+  return toCamel(data);
 };
 
 export const api = {
@@ -33,6 +123,13 @@ export const api = {
    */
   setToken: (token) => {
     authToken = token;
+  },
+
+  /**
+   * Register a callback to execute when a 401 Unauthorized response is received.
+   */
+  onUnauthorized: (handler) => {
+    unauthorizedHandler = handler;
   },
 
   // Manual Signup
@@ -77,7 +174,7 @@ export const api = {
 
   // --- Farmer Listings ---
   fetchListings: async () => {
-    const response = await fetch(`${BASE_URL}/api/listings`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/listings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -85,25 +182,25 @@ export const api = {
   },
 
   createListing: async (cropData) => {
-    const response = await fetch(`${BASE_URL}/api/listings`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/listings`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(cropData),
+      body: JSON.stringify(toSnake(cropData)),
     });
     return handleResponse(response);
   },
 
   updateListing: async (id, cropData) => {
-    const response = await fetch(`${BASE_URL}/api/listings/${id}`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/listings/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify(cropData),
+      body: JSON.stringify(toSnake(cropData)),
     });
     return handleResponse(response);
   },
 
   deleteListing: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/listings/${id}`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/listings/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -113,7 +210,7 @@ export const api = {
 
   // --- Farmer Offers & Escrow ---
   fetchOffers: async () => {
-    const response = await fetch(`${BASE_URL}/api/offers`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/offers`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -121,7 +218,7 @@ export const api = {
   },
 
   acceptOffer: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/offers/${id}/accept`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/offers/${id}/accept`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -130,7 +227,7 @@ export const api = {
   },
 
   rejectOffer: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/offers/${id}/reject`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/offers/${id}/reject`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -139,7 +236,7 @@ export const api = {
   },
 
   fulfillOrder: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/orders/${id}/fulfill`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/orders/${id}/fulfill`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -149,25 +246,33 @@ export const api = {
 
   // --- Wallet & MoMo ---
   fetchWalletInfo: async () => {
-    const response = await fetch(`${BASE_URL}/api/wallet`, {
-      method: 'GET',
-      headers: getHeaders(),
-    });
-    return handleResponse(response);
+    const [walletRes, historyRes] = await Promise.all([
+      fetch(`${BASE_URL}/api/farmer/wallet`, { method: 'GET', headers: getHeaders() }),
+      fetch(`${BASE_URL}/api/farmer/wallet/history`, { method: 'GET', headers: getHeaders() })
+    ]);
+    const wallet = await handleResponse(walletRes);
+    const history = await handleResponse(historyRes);
+    return {
+      balance: {
+        settled: parseFloat(wallet.balance) || 0.00,
+        escrow: parseFloat(wallet.escrowBalance) || 0.00
+      },
+      history: history
+    };
   },
 
   withdrawFunds: async (amount, momoNumber) => {
-    const response = await fetch(`${BASE_URL}/api/wallet/withdraw`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/wallet/withdraw`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ amount, momoNumber }),
+      body: JSON.stringify(toSnake({ amount, phone: momoNumber })),
     });
     return handleResponse(response);
   },
 
   // --- Ratings ---
   fetchRatings: async () => {
-    const response = await fetch(`${BASE_URL}/api/ratings`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/ratings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -175,17 +280,17 @@ export const api = {
   },
 
   replyToRating: async (id, replyText) => {
-    const response = await fetch(`${BASE_URL}/api/ratings/${id}/reply`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/ratings/${id}/reply`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ replyText }),
+      body: JSON.stringify(toSnake({ reply: replyText })),
     });
     return handleResponse(response);
   },
 
   // --- Analytics ---
   fetchFarmerAnalytics: async () => {
-    const response = await fetch(`${BASE_URL}/api/analytics`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/analytics`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -194,7 +299,7 @@ export const api = {
 
   // --- Dashboard Summary ---
   fetchDashboardSummary: async () => {
-    const response = await fetch(`${BASE_URL}/api/dashboard`, {
+    const response = await fetch(`${BASE_URL}/api/farmer/dashboard`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -232,7 +337,7 @@ export const api = {
     const response = await fetch(`${BASE_URL}/api/buyer/offers`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(offerData),
+      body: JSON.stringify(toSnake(offerData)),
     });
     return handleResponse(response);
   },
@@ -241,7 +346,7 @@ export const api = {
     const response = await fetch(`${BASE_URL}/api/buyer/offers/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify(offerData),
+      body: JSON.stringify(toSnake(offerData)),
     });
     return handleResponse(response);
   },
@@ -265,10 +370,11 @@ export const api = {
   },
 
   fundBuyerEscrow: async (id, amount) => {
+    const transactionId = 'MOMO-TX-' + Math.floor(100000 + Math.random() * 900000);
     const response = await fetch(`${BASE_URL}/api/buyer/orders/${id}/fund`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ amount }),
+      body: JSON.stringify({ transaction_id: transactionId, amount }),
     });
     return handleResponse(response);
   },
@@ -286,7 +392,7 @@ export const api = {
     const response = await fetch(`${BASE_URL}/api/buyer/wallet/deposit`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ amount, momoNumber, provider }),
+      body: JSON.stringify(toSnake({ amount, momoNumber, provider })),
     });
     return handleResponse(response);
   },
@@ -313,7 +419,7 @@ export const api = {
     const response = await fetch(`${BASE_URL}/api/buyer/ratings`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(ratingData),
+      body: JSON.stringify(toSnake(ratingData)),
     });
     return handleResponse(response);
   },
@@ -323,16 +429,15 @@ export const api = {
     const response = await fetch(`${BASE_URL}/api/buyer/disputes`, {
       method: 'GET',
       headers: getHeaders(),
-      body: JSON.stringify({}),
     });
     return handleResponse(response);
   },
 
   raiseDispute: async (disputeData) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/disputes`, {
+    const response = await fetch(`${BASE_URL}/api/buyer/orders/${disputeData.orderId}/dispute`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify(disputeData),
+      body: JSON.stringify({ reason: disputeData.details }),
     });
     return handleResponse(response);
   },
@@ -356,7 +461,15 @@ export const api = {
   },
 
   fetchTransporterJobs: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs`, {
+    const response = await fetch(`${BASE_URL}/api/transporter/jobs/available`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  fetchTransporterActiveJobs: async () => {
+    const response = await fetch(`${BASE_URL}/api/transporter/jobs/active`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -373,19 +486,19 @@ export const api = {
   },
 
   pickupTransporterJob: async (id, pickupToken) => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/pickup`, {
+    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/confirm-pickup`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ pickupToken }),
+      body: JSON.stringify({ qr_code: pickupToken }),
     });
     return handleResponse(response);
   },
 
   deliverTransporterJob: async (id, deliveryToken) => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/deliver`, {
+    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/confirm-delivery`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ deliveryToken }),
+      body: JSON.stringify({ qr_code: deliveryToken }),
     });
     return handleResponse(response);
   },

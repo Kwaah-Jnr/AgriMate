@@ -55,7 +55,7 @@ export default function OffersTab() {
   useEffect(() => {
     let intervalId;
     const transitOrders = offers.filter(
-      o => o.status === 'fulfilled' && o.escrowStatus === 'half_released'
+      o => o.status === 'picked_up' || o.deliveryStatus === 'transit'
     );
 
     if (transitOrders.length > 0) {
@@ -143,7 +143,7 @@ export default function OffersTab() {
       return o.status === 'pending';
     } else {
       // Contracts in progress or completed
-      return o.status === 'accepted' || o.status === 'fulfilled';
+      return o.status !== 'pending' && o.status !== 'rejected';
     }
   });
 
@@ -155,6 +155,11 @@ export default function OffersTab() {
         <View style={styles.cardHeader}>
           <Text style={styles.buyerName}>{item.buyerName}</Text>
           <Text style={styles.totalValue}>GH₵{totalValue.toLocaleString()}</Text>
+        </View>
+
+        <View style={styles.cardMeta}>
+          <Text style={styles.metaLabel}>CROP NAME</Text>
+          <Text style={[styles.metaValue, { fontWeight: '700', color: '#12372A' }]}>{item.cropName}</Text>
         </View>
 
         <View style={styles.cardMeta}>
@@ -191,59 +196,112 @@ export default function OffersTab() {
           </View>
         )}
 
-        {item.status === 'accepted' && (
-          item.isDisputed ? (
-            <View style={styles.contractStatusRow}>
-              <View style={[styles.statusBadge, { backgroundColor: '#FEE2E2', flex: 1, marginRight: 0, paddingVertical: 10 }]}>
-                <Text style={[styles.statusBadgeText, { color: '#EF4444', textAlign: 'center', fontWeight: '700' }]}>
-                  CONTRACT DISPUTED (LOCKED)
+        {(() => {
+          const isEscrowFunded = item.escrowStatus === 'funded' || item.escrowStatus === 'half_released' || item.escrowStatus === 'released';
+          const isDisputed = item.status === 'disputed' || item.escrowStatus === 'disputed';
+          const isCancelled = item.status === 'cancelled' || item.escrowStatus === 'refunded';
+
+          if (isDisputed) {
+            return (
+              <View style={styles.contractStatusRow}>
+                <View style={[styles.statusBadge, { backgroundColor: '#FEE2E2', flex: 1, marginRight: 0, paddingVertical: 10 }]}>
+                  <Text style={[styles.statusBadgeText, { color: '#EF4444', textAlign: 'center', fontWeight: '700' }]}>
+                    CONTRACT DISPUTED (LOCKED)
+                  </Text>
+                </View>
+              </View>
+            );
+          }
+
+          if (isCancelled) {
+            return (
+              <View style={styles.contractStatusRow}>
+                <View style={[styles.statusBadge, { backgroundColor: '#F1F5F9', flex: 1, marginRight: 0, paddingVertical: 10 }]}>
+                  <Text style={[styles.statusBadgeText, { color: '#64748B', textAlign: 'center', fontWeight: '700' }]}>
+                    CONTRACT CANCELLED (REFUNDED)
+                  </Text>
+                </View>
+              </View>
+            );
+          }
+
+          if (item.status === 'accepted' || item.status === 'escrow_funded') {
+            return (
+              <View style={styles.contractStatusRow}>
+                <View style={[styles.statusBadge, !isEscrowFunded && { backgroundColor: '#FEE2E2' }]}>
+                  <Text style={[styles.statusBadgeText, !isEscrowFunded && { color: '#EF4444' }]}>
+                    {isEscrowFunded ? 'ESCROW LOCKED' : 'AWAITING ESCROW'}
+                  </Text>
+                </View>
+                
+                {isEscrowFunded ? (
+                  <TouchableOpacity 
+                    style={[styles.fulfillBtn, { backgroundColor: '#059669' }]} 
+                    onPress={() => handleFulfillOrder(item.id)}
+                  >
+                    <Check size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.fulfillBtnText}>Mark Crop Ready</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity 
+                    style={[styles.fulfillBtn, { backgroundColor: '#CBD5E1' }]} 
+                    disabled={true}
+                  >
+                    <Check size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.fulfillBtnText}>Awaiting Funding</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          }
+
+          if (item.status === 'ready_for_pickup' || item.status === 'assigned') {
+            return (
+              <View style={styles.contractStatusRow}>
+                <View style={[styles.statusBadge, { backgroundColor: '#EFF6FF' }]}>
+                  <Text style={[styles.statusBadgeText, { color: '#2563EB' }]}>
+                    {item.status === 'assigned' ? 'ASSIGNED TO DRIVER' : 'READY FOR PICKUP'}
+                  </Text>
+                </View>
+                
+                <TouchableOpacity 
+                  style={[styles.fulfillBtn, { backgroundColor: '#00A86B' }]} 
+                  onPress={() => {
+                    setSelectedOrderForQr(item);
+                    setQrModalVisible(true);
+                  }}
+                >
+                  <QrCode size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.fulfillBtnText}>Show Pickup QR</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          }
+
+          if (item.status === 'picked_up' || item.deliveryStatus === 'transit') {
+            return (
+              <View style={[styles.completedBadge, { backgroundColor: '#EFF6FF' }]}>
+                <Text style={[styles.completedBadgeText, { color: '#2563EB' }]}>
+                  IN TRANSIT • 50% FUNDS SETTLED
                 </Text>
               </View>
-            </View>
-          ) : (
-            <View style={styles.contractStatusRow}>
-              <View style={[styles.statusBadge, !item.isEscrowFunded && { backgroundColor: '#FEE2E2' }]}>
-                <Text style={[styles.statusBadgeText, !item.isEscrowFunded && { color: '#EF4444' }]}>
-                  {item.isEscrowFunded ? 'ESCROW LOCKED' : 'AWAITING ESCROW'}
+            );
+          }
+
+          if (item.status === 'delivered' || item.escrowStatus === 'released') {
+            return (
+              <View style={[styles.completedBadge, { backgroundColor: '#ECFDF5' }]}>
+                <Text style={[styles.completedBadgeText, { color: '#16A34A' }]}>
+                  COMPLETED • 100% FUNDS RELEASED
                 </Text>
               </View>
-              
-              <TouchableOpacity 
-                style={[styles.fulfillBtn, !item.isEscrowFunded && { backgroundColor: '#CBD5E1' }]} 
-                disabled={!item.isEscrowFunded}
-                onPress={() => {
-                  setSelectedOrderForQr(item);
-                  setQrModalVisible(true);
-                }}
-              >
-                <QrCode size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.fulfillBtnText}>Show Pickup QR</Text>
-              </TouchableOpacity>
-            </View>
-          )
-        )}
+            );
+          }
 
-        {item.status === 'fulfilled' && (
-          <View style={[
-            styles.completedBadge, 
-            item.escrowStatus === 'half_released' && { backgroundColor: '#EFF6FF' },
-            item.escrowStatus === 'released' && { backgroundColor: '#ECFDF5' }
-          ]}>
-            <Text style={[
-              styles.completedBadgeText,
-              item.escrowStatus === 'half_released' && { color: '#2563EB' },
-              item.escrowStatus === 'released' && { color: '#16A34A' }
-            ]}>
-              {item.escrowStatus === 'released' 
-                ? 'COMPLETED • 100% FUNDS RELEASED' 
-                : item.escrowStatus === 'half_released' 
-                  ? 'IN TRANSIT • 50% FUNDS SETTLED' 
-                  : 'READY FOR PICKUP • FUNDS SECURED'}
-            </Text>
-          </View>
-        )}
+          return null;
+        })()}
 
-        {item.status === 'fulfilled' && item.escrowStatus === 'half_released' && (() => {
+        {(item.status === 'picked_up' || item.deliveryStatus === 'transit') && (() => {
           const loc = orderLocations[item.id];
           const isMapEnabled = toggledMaps[item.id] || false;
 
