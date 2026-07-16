@@ -192,8 +192,8 @@ exports.getOffers = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT o.order_id, o.price as offered_price, o.quantity as offered_quantity, 
-              o.status as offer_status, o.pickup_by, o.note, o.created_at,
+      `SELECT o.order_id, o.price, o.price as offered_price, o.quantity, o.quantity as offered_quantity, 
+              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at,
               l.listing_id, l.crop_name, l.grade, l.location as listing_location,
               u.username as buyer_name, u.phone_number as buyer_phone
        FROM orders o
@@ -269,7 +269,20 @@ exports.acceptOffer = async (req, res) => {
     await logHistory(client, userId, "offer_accepted", orderId, `Accepted offer of ${offer.price} GHS/bag for order ID ${orderId}`);
     
     await client.query("COMMIT");
-    res.json({ message: "Offer accepted successfully. Funds held in escrow.", order_id: orderId });
+
+    const updatedOffer = await client.query(
+      `SELECT o.order_id, o.price, o.price as offered_price, o.quantity, o.quantity as offered_quantity, 
+              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at,
+              l.listing_id, l.crop_name, l.grade, l.location as listing_location,
+              u.username as buyer_name, u.phone_number as buyer_phone
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON o.buyer_id = u.user_id
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    res.json(updatedOffer.rows[0]);
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Error accepting offer:", err.message);
@@ -316,7 +329,20 @@ exports.rejectOffer = async (req, res) => {
     await logHistory(client, userId, "offer_rejected", orderId, `Rejected offer for order ID ${orderId}`);
 
     await client.query("COMMIT");
-    res.json({ message: "Offer rejected successfully." });
+
+    const updatedOffer = await client.query(
+      `SELECT o.order_id, o.price, o.price as offered_price, o.quantity, o.quantity as offered_quantity, 
+              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at,
+              l.listing_id, l.crop_name, l.grade, l.location as listing_location,
+              u.username as buyer_name, u.phone_number as buyer_phone
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON o.buyer_id = u.user_id
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    res.json(updatedOffer.rows[0]);
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Error rejecting offer:", err.message);
@@ -475,12 +501,26 @@ exports.withdrawFunds = async (req, res) => {
 
     const newBalance = balance - amount;
     await client.query("UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2", [newBalance, userId]);
+
+    // Insert wallet transaction record
+    const txResult = await client.query(
+      `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+       VALUES ($1, 'withdrawal', $2, 'success', $3) RETURNING *`,
+      [userId, amount, `Withdrew ${amount} GHS to Mobile Money (${phone})`]
+    );
     
     // Log history
     await logHistory(client, userId, "withdraw_momo", wallet.wallet_id, `Withdrew ${amount} GHS to MTN MoMo wallet (${phone})`);
 
     await client.query("COMMIT");
-    res.json({ message: "Withdrawal successful.", new_balance: newBalance });
+    res.json({
+      message: "Withdrawal successful.",
+      balance: {
+        settled: newBalance,
+        escrow: parseFloat(wallet.escrow_balance) || 0.00
+      },
+      transaction: txResult.rows[0]
+    });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Error withdrawing funds:", err.message);
@@ -495,7 +535,7 @@ exports.getHistory = async (req, res) => {
 
   try {
     const result = await pool.query(
-      "SELECT * FROM history WHERE user_id = $1 ORDER BY created_at DESC",
+      "SELECT * FROM wallet_transactions WHERE user_id = $1 ORDER BY created_at DESC",
       [userId]
     );
     res.json(result.rows);
@@ -651,3 +691,48 @@ exports.getOrderLocation = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+exports.getDashboardSummary = async (req, res) => {
+  const userId = req.user.user_id;
+
+  const client = await pool.connect();
+  try {
+    // 1. Get active listings count
+    const listingsCountResult = await client.query(
+      "SELECT COUNT(*) FROM listings WHERE user_id = $1 AND status = 'open'",
+      [userId]
+    );
+
+    // 2. Get pending offers count
+    const offersCountResult = await client.query(
+      `SELECT COUNT(o.order_id) 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE l.user_id = $1 AND o.status = 'pending'`,
+      [userId]
+    );
+
+    // 3. Get settled and escrow balance from wallet
+    const wallet = await getOrCreateWallet(client, userId);
+
+    // 4. Get rating score
+    const ratingsResult = await client.query(
+      "SELECT AVG(score)::DECIMAL(2,1) as average_rating FROM ratings WHERE rated_user_id = $1",
+      [userId]
+    );
+
+    res.json({
+      activeListingsCount: parseInt(listingsCountResult.rows[0].count) || 0,
+      pendingOffersCount: parseInt(offersCountResult.rows[0].count) || 0,
+      settledBalance: parseFloat(wallet.balance) || 0.00,
+      escrowBalance: parseFloat(wallet.escrow_balance) || 0.00,
+      ratingScore: parseFloat(ratingsResult.rows[0].average_rating) || 5.0
+    });
+  } catch (err) {
+    console.error("❌ Error fetching farmer dashboard summary:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+

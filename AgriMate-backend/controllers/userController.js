@@ -8,7 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "agrimate_secret_key";
 const registerUser = async (req, res) => {
   const { full_name, fullName, username, email, phone, phone_number, phoneNumber, region, password, pin, role, vehicle_number, vehicleNumber } = req.body;
 
-  const usernameVal = fullName || full_name || username;
+  const usernameVal = username || fullName || full_name;
   const emailVal = email;
   const phoneVal = phone || phone_number || phoneNumber;
   const passwordVal = password || pin;

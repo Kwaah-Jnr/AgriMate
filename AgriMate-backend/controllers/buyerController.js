@@ -83,10 +83,11 @@ exports.getMarketInsights = async (req, res) => {
    ========================================================================== */
 
 exports.placeOffer = async (req, res) => {
-  const { listings_id, price, quantity, pickup_by, note } = req.body;
+  const { listings_id, listing_id, price, quantity, pickup_by, note } = req.body;
   const buyerId = req.user.user_id;
+  const targetListingId = listings_id || listing_id;
 
-  if (!listings_id || !price || !quantity) {
+  if (!targetListingId || !price || !quantity) {
     return res.status(400).json({ error: "Listing ID, offered price per bag, and offered quantity are required." });
   }
 
@@ -95,7 +96,7 @@ exports.placeOffer = async (req, res) => {
     await client.query("BEGIN");
 
     // Verify listing is active and open
-    const listingCheck = await client.query("SELECT * FROM listings WHERE listing_id = $1", [listings_id]);
+    const listingCheck = await client.query("SELECT * FROM listings WHERE listing_id = $1", [targetListingId]);
     if (listingCheck.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Crop listing not found." });
@@ -110,12 +111,12 @@ exports.placeOffer = async (req, res) => {
       `INSERT INTO orders (buyer_id, listings_id, price, quantity, status, pickup_by, note) 
        VALUES ($1, $2, $3, $4, 'pending', $5, $6) 
        RETURNING *`,
-      [buyerId, listings_id, price, quantity, pickup_by || null, note || null]
+      [buyerId, targetListingId, price, quantity, pickup_by || null, note || null]
     );
     const order = result.rows[0];
 
     // Log history
-    await logHistory(client, buyerId, "offer_placed", order.order_id, `Placed offer of ${price} GHS/bag for listing ID ${listings_id}`);
+    await logHistory(client, buyerId, "offer_placed", order.order_id, `Placed offer of ${price} GHS/bag for listing ID ${targetListingId}`);
 
     await client.query("COMMIT");
     res.status(201).json(order);
@@ -213,6 +214,26 @@ exports.cancelOffer = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   } finally {
     client.release();
+  }
+};
+
+exports.getBuyerOffers = async (req, res) => {
+  const buyerId = req.user.user_id;
+
+  try {
+    const result = await pool.query(
+      `SELECT o.*, l.crop_name, l.location as listing_location, l.grade, u.username as farmer_name 
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON l.user_id = u.user_id
+       WHERE o.buyer_id = $1
+       ORDER BY o.created_at DESC`,
+      [buyerId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching buyer offers:", err.message);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
@@ -365,16 +386,30 @@ exports.getPaymentHistory = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT p.payment_id, p.transaction_id, p.status as payment_status, p.confirmed_at,
-              o.order_id, o.price, o.quantity, o.status as order_status, l.crop_name
-       FROM payments p
-       JOIN orders o ON p.order_id = o.order_id
-       JOIN listings l ON o.listings_id = l.listing_id
-       WHERE o.buyer_id = $1
-       ORDER BY p.confirmed_at DESC`,
+      `SELECT transaction_id as id, type, amount, status, description, created_at
+       FROM wallet_transactions
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
       [buyerId]
     );
-    res.json(result.rows);
+
+    // Map 'escrow' type to 'escrow_lock' or 'release' for frontend expectations
+    const mapped = result.rows.map(row => {
+      let type = row.type;
+      if (type === 'escrow') {
+        if (row.description.toLowerCase().includes('release')) {
+          type = 'release';
+        } else {
+          type = 'escrow_lock';
+        }
+      }
+      return {
+        ...row,
+        type
+      };
+    });
+
+    res.json(mapped);
   } catch (err) {
     console.error("❌ Error fetching payment history:", err.message);
     res.status(500).json({ error: "Internal server error" });
@@ -863,3 +898,96 @@ exports.getOrderLocation = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+exports.getDashboardSummary = async (req, res) => {
+  const buyerId = req.user.user_id;
+
+  const client = await pool.connect();
+  try {
+    // 1. Get active offers count (orders placed by buyer that are pending)
+    const activeOffersResult = await client.query(
+      "SELECT COUNT(*) FROM orders WHERE buyer_id = $1 AND status = 'pending'",
+      [buyerId]
+    );
+
+    // 2. Get escrow balance from wallet
+    const wallet = await getOrCreateWallet(client, buyerId);
+
+    // 3. Calculate acceptance rate
+    const offersCountResult = await client.query(
+      "SELECT COUNT(*) FROM orders WHERE buyer_id = $1",
+      [buyerId]
+    );
+    const totalOffers = parseInt(offersCountResult.rows[0].count) || 0;
+    let acceptanceRate = "100%"; // default to 100% if no offers placed
+    if (totalOffers > 0) {
+      const acceptedOffersResult = await client.query(
+        "SELECT COUNT(*) FROM orders WHERE buyer_id = $1 AND status IN ('accepted', 'escrow_funded', 'ready_for_pickup', 'picked_up', 'delivered', 'disputed')",
+        [buyerId]
+      );
+      acceptanceRate = Math.round((parseInt(acceptedOffersResult.rows[0].count) / totalOffers) * 100) + "%";
+    }
+
+    res.json({
+      activeOffersCount: parseInt(activeOffersResult.rows[0].count) || 0,
+      settledBalance: parseFloat(wallet.balance) || 0.00,
+      escrowBalance: parseFloat(wallet.escrow_balance) || 0.00,
+      acceptanceRate: acceptanceRate
+    });
+  } catch (err) {
+    console.error("❌ Error fetching buyer dashboard summary:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+
+exports.depositFunds = async (req, res) => {
+  const userId = req.user.user_id;
+  const { amount, momo_number, provider } = req.body;
+
+  const depositAmount = parseFloat(amount);
+  if (isNaN(depositAmount) || depositAmount <= 0) {
+    return res.status(400).json({ error: "Invalid deposit amount." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // 1. Update wallet balance
+    const wallet = await getOrCreateWallet(client, userId);
+    const newBalance = parseFloat(wallet.balance) + depositAmount;
+    await client.query(
+      "UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2",
+      [newBalance, userId]
+    );
+
+    // 2. Create wallet transaction record
+    await client.query(
+      `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+       VALUES ($1, 'deposit', $2, 'success', $3)`,
+      [userId, depositAmount, `Deposit via ${provider || 'MoMo'} (${momo_number || 'N/A'})`]
+    );
+
+    // 3. Log history
+    await logHistory(client, userId, "wallet_deposit", wallet.wallet_id, `Deposited ${depositAmount} GHS via MoMo`);
+
+    await client.query("COMMIT");
+    res.json({
+      message: "Deposit successful.",
+      balance: {
+        settled: newBalance,
+        escrow: parseFloat(wallet.escrow_balance) || 0.00
+      }
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error depositing funds:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+

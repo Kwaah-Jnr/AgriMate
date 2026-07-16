@@ -43,5 +43,6 @@ router.get("/ratings/score", farmerController.getAverageScore);
    5. Analytics Routes
    ========================================================================== */
 router.get("/analytics", farmerController.getAnalytics);
+router.get("/dashboard", farmerController.getDashboardSummary);
 
 module.exports = router;

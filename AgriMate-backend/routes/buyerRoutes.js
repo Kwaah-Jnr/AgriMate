@@ -17,6 +17,7 @@ router.get("/market-insights", buyerController.getMarketInsights);
    2. Offers & Orders Routes
    ========================================================================== */
 router.post("/offers", buyerController.placeOffer);
+router.get("/offers", buyerController.getBuyerOffers);
 router.put("/offers/:id", buyerController.updateOffer);
 router.delete("/offers/:id", buyerController.cancelOffer);
 router.get("/orders", buyerController.getOwnOrders);
@@ -27,6 +28,7 @@ router.get("/orders/:id/location", buyerController.getOrderLocation);
    ========================================================================== */
 router.post("/orders/:id/fund", buyerController.fundEscrow);
 router.get("/payments", buyerController.getPaymentHistory);
+router.post("/wallet/deposit", buyerController.depositFunds);
 
 /* ==========================================================================
    4. Ratings & Reputation Routes
@@ -41,5 +43,6 @@ router.post("/orders/:id/resolve-dispute", buyerController.resolveDispute);
    5. Analytics Routes
    ========================================================================== */
 router.get("/analytics", buyerController.getAnalytics);
+router.get("/dashboard", buyerController.getDashboardSummary);
 
 module.exports = router;
