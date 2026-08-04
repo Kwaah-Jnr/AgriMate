@@ -35,9 +35,9 @@ router.get("/wallet/history", farmerController.getHistory);
 /* ==========================================================================
    4. Ratings & Reputation Routes
    ========================================================================== */
+router.get("/ratings/score", farmerController.getAverageScore);
 router.get("/ratings", farmerController.getRatings);
 router.post("/ratings/:id/reply", farmerController.replyToRating);
-router.get("/ratings/score", farmerController.getAverageScore);
 
 /* ==========================================================================
    5. Analytics Routes

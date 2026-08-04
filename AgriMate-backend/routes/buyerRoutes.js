@@ -27,6 +27,7 @@ router.get("/orders/:id/location", buyerController.getOrderLocation);
    3. Payments & Escrow Routes
    ========================================================================== */
 router.post("/orders/:id/fund", buyerController.fundEscrow);
+router.post("/orders/:id/release", buyerController.releaseEscrow); // B18 fix: was missing, causing 404 on Confirm & Release
 router.get("/payments", buyerController.getPaymentHistory);
 router.post("/wallet/deposit", buyerController.depositFunds);
 
@@ -34,6 +35,7 @@ router.post("/wallet/deposit", buyerController.depositFunds);
    4. Ratings & Reputation Routes
    ========================================================================== */
 router.post("/ratings", buyerController.rateFarmer);
+router.get("/ratings", buyerController.getBuyerRatings);
 router.get("/farmers/:id", buyerController.getFarmerProfile);
 router.post("/orders/:id/dispute", buyerController.raiseDispute);
 router.post("/orders/:id/self-pickup", buyerController.selfPickup);

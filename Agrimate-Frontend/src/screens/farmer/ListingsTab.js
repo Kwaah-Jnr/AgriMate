@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { api } from '../../services/api';
 import { Plus, Trash2, Edit2, X } from 'lucide-react-native';
+import { theme } from '../../theme/theme';
 
 export default function ListingsTab() {
   const [listings, setListings] = useState([]);
@@ -135,7 +136,7 @@ export default function ListingsTab() {
           <Text style={styles.cropName}>{item.cropName}</Text>
           <Text style={styles.cropQty}>{item.quantity} lbs • {item.grade}</Text>
         </View>
-        <Text style={styles.cropPrice}>GH₵{item.price.toFixed(2)}/lb</Text>
+        <Text style={styles.cropPrice}>GH₵{(Number(item.price) || 0).toFixed(2)}/lb</Text>
       </View>
       
       {item.description ? (
@@ -203,7 +204,7 @@ export default function ListingsTab() {
         <FlatList
           data={filteredListings}
           renderItem={renderListingItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.listingId || item.listing_id || index)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
@@ -311,27 +312,27 @@ export default function ListingsTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.background,
   },
   tabHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   filterContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 3,
   },
   filterTab: {
     paddingHorizontal: 14,
     paddingVertical: 6,
-    borderRadius: 4,
+    borderRadius: theme.roundness.small,
   },
   filterTabActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -341,22 +342,23 @@ const styles = StyleSheet.create({
   filterText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#64748B',
+    color: theme.colors.textMuted,
   },
   filterTextActive: {
-    color: '#12372A',
+    color: theme.colors.primary,
     fontWeight: '600',
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#12372A',
-    borderRadius: 6,
-    paddingHorizontal: 12,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.roundness.medium,
+    paddingHorizontal: 14,
     paddingVertical: 8,
+    gap: 4,
   },
   addButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -370,12 +372,17 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   cardMain: {
     flexDirection: 'row',
@@ -385,21 +392,21 @@ const styles = StyleSheet.create({
   cropName: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   cropQty: {
     fontSize: 12,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
   cropPrice: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#12372A',
+    fontSize: 16,
+    fontWeight: '700',
+    color: theme.colors.primary,
   },
   cropDesc: {
     fontSize: 12,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     marginTop: 8,
     lineHeight: 16,
   },
@@ -407,7 +414,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 16,
     borderTopWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.colors.border,
     paddingTop: 12,
     marginTop: 12,
   },
@@ -418,19 +425,19 @@ const styles = StyleSheet.create({
   },
   actionBtnText: {
     fontSize: 13,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   deleteBtn: {
     marginLeft: 'auto',
   },
   deleteText: {
-    color: '#EF4444',
+    color: theme.colors.error,
   },
   soldBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#ECFDF5',
-    borderRadius: 4,
+    backgroundColor: theme.colors.successContainer,
+    borderRadius: theme.roundness.small,
     paddingHorizontal: 8,
     paddingVertical: 4,
     marginTop: 12,
@@ -438,7 +445,7 @@ const styles = StyleSheet.create({
   soldBadgeText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#047857',
+    color: theme.colors.success,
   },
   emptyContainer: {
     paddingVertical: 40,
@@ -446,37 +453,37 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: theme.roundness.large,
+    borderTopRightRadius: theme.roundness.large,
     maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: theme.spacing.lg,
     borderBottomWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.colors.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   modalForm: {
-    padding: 20,
+    padding: theme.spacing.lg,
   },
   inputGroup: {
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   row: {
     flexDirection: 'row',
@@ -484,20 +491,20 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#475569',
+    color: theme.colors.textMuted,
     marginBottom: 6,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 6,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    color: '#0F172A',
-    backgroundColor: '#FAFAFA',
+    color: theme.colors.text,
+    backgroundColor: theme.colors.surface,
   },
   multilineInput: {
     height: 80,
@@ -505,18 +512,18 @@ const styles = StyleSheet.create({
   },
   segmentedContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 3,
   },
   segment: {
     flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
-    borderRadius: 4,
+    borderRadius: theme.roundness.small,
   },
   segmentActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -526,22 +533,27 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#64748B',
+    color: theme.colors.textMuted,
   },
   segmentTextActive: {
-    color: '#12372A',
+    color: theme.colors.primary,
     fontWeight: '600',
   },
   saveButton: {
-    backgroundColor: '#12372A',
-    borderRadius: 6,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.roundness.medium,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 10,
     marginBottom: 20,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   saveButtonText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 15,
     fontWeight: '600',
   },

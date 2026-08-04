@@ -6,52 +6,85 @@ import {
   View,
   FlatList,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Card } from 'react-native-paper';
 import { Star, User, Calendar } from 'lucide-react-native';
+import { api } from '../../services/api';
+
+const seedReviews = [
+  {
+    id: 'rev_1',
+    authorName: 'Kofi Mensah (Farmer)',
+    score: 5,
+    comment: 'Very polite transporter, picked up the cargo exactly on time and maintained crop freshness.',
+    createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    id: 'rev_2',
+    authorName: 'Ama Serwaa (Buyer)',
+    score: 4.5,
+    comment: 'Quick delivery, very friendly, would hire again.',
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+  }
+];
 
 export default function RatingsTab() {
-  const [reviews, setReviews] = useState([
-    {
-      id: 'rev_1',
-      authorName: 'Kofi Mensah (Farmer)',
-      score: 5,
-      comment: 'Very polite transporter, picked up the cargo exactly on time and maintained crop freshness.',
-      createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      id: 'rev_2',
-      authorName: 'Ama Serwaa (Buyer)',
-      score: 4.5,
-      comment: 'Quick delivery, very friendly, would hire again.',
-      createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+  const [reviews, setReviews] = useState(seedReviews);
+  const [averageScore, setAverageScore] = useState('4.8');
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadTransporterRatings = async () => {
+    setIsLoading(true);
+    try {
+      const data = await api.fetchTransporterRatings();
+      const list = Array.isArray(data) ? data : (data?.reviews || []);
+      if (list.length > 0) {
+        setReviews(list);
+        const sum = list.reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0);
+        setAverageScore((sum / list.length).toFixed(1));
+      }
+    } catch (error) {
+      console.log('Using default reviews for transporter ratings:', error.message);
+    } finally {
+      setIsLoading(false);
     }
-  ]);
-  const [isLoading, setIsLoading] = useState(false);
+  };
 
-  const renderReviewCard = ({ item }) => (
-    <Card style={styles.card}>
-      <Card.Content>
-        <View style={styles.cardHeader}>
-          <View style={styles.authorRow}>
-            <User size={14} color="#64748B" style={{ marginRight: 6 }} />
-            <Text style={styles.authorName}>{item.authorName}</Text>
+  useEffect(() => {
+    loadTransporterRatings();
+  }, []);
+
+  const renderReviewCard = ({ item }) => {
+    const itemScore = parseFloat(item.score || 5);
+    const author = item.reviewerName || item.authorName || 'Verified Client';
+
+    return (
+      <Card style={styles.card}>
+        <Card.Content>
+          <View style={styles.cardHeader}>
+            <View style={styles.authorRow}>
+              <User size={14} color="#64748B" style={{ marginRight: 6 }} />
+              <Text style={styles.authorName}>{author}</Text>
+            </View>
+            <View style={styles.scoreRow}>
+              <Star size={12} color="#D97706" style={{ marginRight: 4 }} />
+              <Text style={styles.score}>{itemScore.toFixed(1)}</Text>
+            </View>
           </View>
-          <View style={styles.scoreRow}>
-            <Star size={12} color="#D97706" style={{ marginRight: 4 }} />
-            <Text style={styles.score}>{item.score.toFixed(1)}</Text>
+
+          <Text style={styles.comment}>"{item.comment}"</Text>
+
+          <View style={styles.dateRow}>
+            <Calendar size={11} color="#94A3B8" style={{ marginRight: 4 }} />
+            <Text style={styles.dateText}>
+              {new Date(item.createdAt || item.created_at || Date.now()).toLocaleDateString()}
+            </Text>
           </View>
-        </View>
-
-        <Text style={styles.comment}>"{item.comment}"</Text>
-
-        <View style={styles.dateRow}>
-          <Calendar size={11} color="#94A3B8" style={{ marginRight: 4 }} />
-          <Text style={styles.dateText}>{new Date(item.createdAt).toLocaleDateString()}</Text>
-        </View>
-      </Card.Content>
-    </Card>
-  );
+        </Card.Content>
+      </Card>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -59,24 +92,32 @@ export default function RatingsTab() {
       <View style={styles.scoreOverview}>
         <Text style={styles.overviewLabel}>Transporter Reputation Score</Text>
         <View style={styles.starsContainer}>
-          <Star size={24} color="#D97706" fill="#D97706" />
-          <Star size={24} color="#D97706" fill="#D97706" />
-          <Star size={24} color="#D97706" fill="#D97706" />
-          <Star size={24} color="#D97706" fill="#D97706" />
-          <Star size={24} color="#D97706" fill="#D97706" />
-          <Text style={styles.ratingVal}>4.8 / 5.0</Text>
+          {[1, 2, 3, 4, 5].map((s) => (
+            <Star
+              key={s}
+              size={22}
+              color="#D97706"
+              fill={s <= Math.round(parseFloat(averageScore)) ? '#D97706' : 'none'}
+              style={{ marginRight: 4 }}
+            />
+          ))}
+          <Text style={styles.ratingVal}>{averageScore} / 5.0</Text>
         </View>
       </View>
 
       <Text style={styles.sectionTitle}>Client Feedback & Reviews</Text>
 
-      <FlatList
-        data={reviews}
-        renderItem={renderReviewCard}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-      />
+      {isLoading ? (
+        <ActivityIndicator size="large" color="#12372A" style={{ marginTop: 24 }} />
+      ) : (
+        <FlatList
+          data={reviews}
+          renderItem={renderReviewCard}
+          keyExtractor={(item, index) => String(item.id || item.ratingId || item.rating_id || index)}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
     </View>
   );
 }
@@ -92,36 +133,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
     borderColor: '#F1F5F9',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 20,
     alignItems: 'center',
   },
   overviewLabel: {
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '600',
     color: '#64748B',
-    fontWeight: '500',
     textTransform: 'uppercase',
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
+    marginBottom: 8,
   },
   starsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    gap: 4,
   },
   ratingVal: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     color: '#0F172A',
     marginLeft: 8,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '650',
-    color: '#475569',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
     marginBottom: 12,
   },
   listContent: {
@@ -129,11 +167,11 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
-    marginBottom: 16,
-    elevation: 0,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    marginBottom: 12,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -146,38 +184,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   authorName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
   },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 6,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: 12,
   },
   score: {
-    fontSize: 10,
-    fontWeight: '750',
-    color: '#D97706',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B45309',
   },
   comment: {
-    fontSize: 12,
-    color: '#475569',
+    fontSize: 13,
+    color: '#334155',
     fontStyle: 'italic',
-    lineHeight: 16,
-    marginVertical: 4,
+    lineHeight: 18,
+    marginBottom: 10,
   },
   dateRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
   },
   dateText: {
-    fontSize: 9,
+    fontSize: 11,
     color: '#94A3B8',
-    fontWeight: '500',
   },
 });

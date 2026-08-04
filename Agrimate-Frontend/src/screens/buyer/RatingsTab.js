@@ -184,12 +184,13 @@ export default function RatingsTab() {
           <Text style={styles.emptyText}>You haven't submitted any reviews yet.</Text>
         </View>
       ) : (
-        <FlatList
-          data={ratings}
-          renderItem={renderRatingItem}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-        />
+        <View>
+          {ratings.map((item, index) => (
+            <View key={String(item.id || item.ratingId || item.rating_id || index)}>
+              {renderRatingItem({ item })}
+            </View>
+          ))}
+        </View>
       )}
     </ScrollView>
   );

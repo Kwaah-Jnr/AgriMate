@@ -1,14 +1,30 @@
 // src/services/api.js
+import { Platform } from 'react-native';
 
 /**
  * Configure backend API base URL.
- * - 'http://localhost:5000' is standard for iOS simulator testing.
+ * - 'http://localhost:5000' is standard for iOS simulator / web / desktop testing.
  * - 'http://10.0.2.2:5000' is the loopback IP for Android emulator testing.
  */
-const BASE_URL = 'http://10.0.2.2:5000';
+const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
 
 let authToken = null;
 let unauthorizedHandler = null;
+let cacheResetCallbacks = [];
+
+export const registerCacheReset = (fn) => {
+  if (typeof fn === 'function' && !cacheResetCallbacks.includes(fn)) {
+    cacheResetCallbacks.push(fn);
+  }
+};
+
+export const clearAllCaches = () => {
+  cacheResetCallbacks.forEach((fn) => {
+    try {
+      fn();
+    } catch (e) {}
+  });
+};
 
 const getHeaders = () => {
   const headers = {
@@ -270,6 +286,16 @@ export const api = {
     return handleResponse(response);
   },
 
+  // B12 fix: transporter withdrawal must hit /api/transporter/wallet/withdraw — not the farmer route
+  withdrawTransporterFunds: async (amount, momoNumber) => {
+    const response = await fetch(`${BASE_URL}/api/transporter/wallet/withdraw`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(toSnake({ amount, phone: momoNumber })),
+    });
+    return handleResponse(response);
+  },
+
   // --- Ratings ---
   fetchRatings: async () => {
     const response = await fetch(`${BASE_URL}/api/farmer/ratings`, {
@@ -352,10 +378,10 @@ export const api = {
   },
 
   cancelBuyerOffer: async (id) => {
+    // B8 fix: DELETE requests must not have a body — some proxies/RN networks strip it
     const response = await fetch(`${BASE_URL}/api/buyer/offers/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
-      body: JSON.stringify({}),
     });
     return handleResponse(response);
   },
@@ -451,13 +477,41 @@ export const api = {
     return handleResponse(response);
   },
 
+  // B1 fix: resolveBuyerDispute was missing — DisputesTab called this and crashed
+  resolveBuyerDispute: async (id, action) => {
+    const response = await fetch(`${BASE_URL}/api/buyer/disputes/${id}/resolve`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ action }),
+    });
+    return handleResponse(response);
+  },
+
   // --- Transporter API Calls ---
+  // B2 fix: /api/transporter/dashboard route does not exist; returns dashboard data from /analytics instead
   fetchTransporterDashboard: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/dashboard`, {
+    const response = await fetch(`${BASE_URL}/api/transporter/analytics`, {
       method: 'GET',
       headers: getHeaders(),
     });
     return handleResponse(response);
+  },
+
+  // B12 fix: fetchTransporterWallet was missing — TransporterWalletTab crashed on load
+  fetchTransporterWallet: async () => {
+    const [walletRes, historyRes] = await Promise.all([
+      fetch(`${BASE_URL}/api/transporter/wallet`, { method: 'GET', headers: getHeaders() }),
+      fetch(`${BASE_URL}/api/transporter/earnings`, { method: 'GET', headers: getHeaders() }),
+    ]);
+    const wallet = await handleResponse(walletRes);
+    const history = await handleResponse(historyRes);
+    return {
+      balance: {
+        settled: parseFloat(wallet.balance) || 0.00,
+        escrow: parseFloat(wallet.escrowBalance) || 0.00,
+      },
+      history,
+    };
   },
 
   fetchTransporterJobs: async () => {
@@ -511,6 +565,14 @@ export const api = {
     return handleResponse(response);
   },
 
+  fetchTransporterRatings: async () => {
+    const response = await fetch(`${BASE_URL}/api/transporter/ratings`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
   fetchTransporterAnalytics: async () => {
     const response = await fetch(`${BASE_URL}/api/transporter/analytics`, {
       method: 'GET',
@@ -519,20 +581,12 @@ export const api = {
     return handleResponse(response);
   },
 
-  resolveBuyerDispute: async (id, action) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/disputes/${id}/resolve`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ action }),
-    });
-    return handleResponse(response);
-  },
-
+  // B3 fix: backend expects snake_case keys { qr_code, vehicle_number }
   selfPickupBuyerOrder: async (id, pickupToken, vehicleNumber) => {
     const response = await fetch(`${BASE_URL}/api/buyer/orders/${id}/self-pickup`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ pickupToken, vehicleNumber }),
+      body: JSON.stringify({ qr_code: pickupToken, vehicle_number: vehicleNumber }),
     });
     return handleResponse(response);
   },
@@ -560,6 +614,13 @@ export const api = {
       headers: getHeaders(),
     });
     return handleResponse(response);
+  },
+
+  setToken: (token) => {
+    authToken = token;
+    if (!token) {
+      clearAllCaches();
+    }
   },
 };
 

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
+import { theme } from '../theme/theme';
 import {
   LogOut,
   User,
@@ -75,7 +76,7 @@ export default function DashboardScreen() {
         setPendingOffersCount(summary.pendingOffersCount || 0);
       } else if (userRole === 'buyer') {
         const ordersData = await api.fetchBuyerOrders();
-        const unfunded = ordersData.filter(o => o.escrowStatus !== 'funded').length;
+        const unfunded = (Array.isArray(ordersData) ? ordersData : []).filter(o => o.escrowStatus !== 'funded').length;
         setUnfundedOrdersCount(unfunded);
       }
     } catch (err) {
@@ -85,12 +86,16 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     fetchNotificationCounts();
-    const interval = setInterval(fetchNotificationCounts, 8000);
+    // B11 fix: reduced from 8s to 30s — 8s was flooding the DB connection pool
+    const interval = setInterval(fetchNotificationCounts, 30000);
     return () => clearInterval(interval);
   }, [user]);
 
   useEffect(() => {
-    fetchNotificationCounts();
+    // Only refresh counts when switching tabs (not on mount — handled by interval above)
+    if (activeTab) {
+      fetchNotificationCounts();
+    }
   }, [activeTab]);
 
   const name = user?.fullName || 'AgriMate Member';
@@ -487,27 +492,27 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.background,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: theme.spacing.md,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderColor: '#F1F5F9',
-    backgroundColor: '#FFFFFF',
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '750',
-    color: '#12372A',
+    fontWeight: '800',
+    color: theme.colors.primary,
   },
   headerSubtitle: {
     fontSize: 10,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginTop: 2,
@@ -515,37 +520,37 @@ const styles = StyleSheet.create({
   logoutButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 4,
-    backgroundColor: '#F8FAFC',
+    borderRadius: theme.roundness.small,
+    backgroundColor: theme.colors.surfaceDim,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.colors.border,
   },
   logoutButtonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#EF4444',
+    color: theme.colors.error,
   },
   scrollContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
   },
   profileSection: {
-    marginBottom: 20,
+    marginBottom: theme.spacing.md,
   },
   profileGreeting: {
-    fontSize: 13,
-    color: '#94A3B8',
+    fontSize: theme.typography.bodySmall.fontSize,
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   profileName: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
     marginTop: 2,
   },
   profileEmail: {
-    fontSize: 13,
-    color: '#64748B',
+    fontSize: theme.typography.bodySmall.fontSize,
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
   metaRow: {
@@ -556,12 +561,12 @@ const styles = StyleSheet.create({
   metaBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.colors.surfaceDim,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.colors.border,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
+    borderRadius: theme.roundness.small,
   },
   metaIcon: {
     marginRight: 6,
@@ -569,7 +574,7 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#64748B',
+    color: theme.colors.textMuted,
   },
   dashboardBody: {
     width: '100%',
@@ -581,27 +586,32 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
-    borderRadius: 6,
-    padding: 16,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
+    padding: theme.spacing.md,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   statNumber: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: theme.typography.bodySmall.fontSize,
     fontWeight: '500',
-    color: '#64748B',
+    color: theme.colors.textMuted,
     marginTop: 4,
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: theme.typography.labelSmall.fontSize,
     fontWeight: '600',
-    color: '#475569',
+    color: theme.colors.text,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
@@ -616,31 +626,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 6,
-    paddingVertical: 12,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
+    paddingVertical: 14,
     gap: 8,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   actionCardTitle: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#12372A',
+    color: theme.colors.primary,
   },
   activityList: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness.large,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.colors.border,
+    overflow: 'hidden',
   },
   activityItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: theme.spacing.md,
     borderBottomWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.colors.border,
   },
   activityInfo: {
     flex: 1,
@@ -649,11 +665,11 @@ const styles = StyleSheet.create({
   activityTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   activityDesc: {
     fontSize: 12,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
   activityStatus: {
@@ -662,12 +678,12 @@ const styles = StyleSheet.create({
   statusCompleted: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#16A34A',
+    color: theme.colors.success,
   },
   statusPending: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#D97706',
+    color: theme.colors.warning,
   },
   statusTransit: {
     fontSize: 13,
@@ -676,27 +692,27 @@ const styles = StyleSheet.create({
   },
   statusTime: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
-  // Bottom Tab Bar Styles
   tabContentContainer: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    backgroundColor: theme.colors.background,
   },
   bottomTabBar: {
     flexDirection: 'row',
-    borderTopWidth: 1.5,
-    borderColor: '#F1F5F9',
-    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     paddingVertical: 8,
     paddingBottom: Platform.OS === 'ios' ? 24 : 8,
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
   },
   tabButton: {
     flex: 1,
@@ -706,18 +722,18 @@ const styles = StyleSheet.create({
   },
   tabButtonLabel: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   tabButtonLabelActive: {
-    color: '#12372A',
+    color: theme.colors.primary,
     fontWeight: '700',
   },
   bottomTabBarScrollContainer: {
     maxHeight: Platform.OS === 'ios' ? 76 : 60,
-    borderTopWidth: 1.5,
-    borderColor: '#F1F5F9',
-    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   bottomTabBarScrollContent: {
     paddingHorizontal: 12,

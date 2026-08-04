@@ -121,7 +121,7 @@ export default function PaymentsTab() {
 
         <View style={styles.rightCol}>
           <Text style={[styles.amountText, { color: item.type === 'escrow_lock' ? '#EF4444' : '#16A34A' }]}>
-            {item.type === 'escrow_lock' ? '-' : '+'} GH₵ {item.amount.toFixed(2)}
+            {item.type === 'escrow_lock' ? '-' : '+'} GH₵ {(Number(item.amount) || 0).toFixed(2)}
           </Text>
           <Text style={styles.statusLabel}>{getTypeText(item.type)}</Text>
         </View>
@@ -146,7 +146,7 @@ export default function PaymentsTab() {
             <Wallet size={14} color="#64748B" style={{ marginRight: 6 }} />
             <Text style={styles.balanceLabel}>Settled Balance</Text>
           </View>
-          <Text style={styles.settledAmount}>GH₵{balance.settled.toFixed(2)}</Text>
+          <Text style={styles.settledAmount}>GH₵{(Number(balance?.settled) || 0).toFixed(2)}</Text>
           <Text style={styles.balanceSubtext}>Available to fund bids</Text>
         </View>
 
@@ -157,7 +157,7 @@ export default function PaymentsTab() {
             <Lock size={14} color="#64748B" style={{ marginRight: 6 }} />
             <Text style={styles.balanceLabel}>Escrow Balance</Text>
           </View>
-          <Text style={styles.escrowAmount}>GH₵{balance.escrow.toFixed(2)}</Text>
+          <Text style={styles.escrowAmount}>GH₵{(Number(balance?.escrow) || 0).toFixed(2)}</Text>
           <Text style={styles.balanceSubtext}>Locked in active orders</Text>
         </View>
       </View>
@@ -187,7 +187,7 @@ export default function PaymentsTab() {
         <FlatList
           data={payments}
           renderItem={renderPaymentItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.paymentId || item.payment_id || index)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         />

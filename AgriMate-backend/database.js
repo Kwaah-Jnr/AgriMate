@@ -7,6 +7,9 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT,
+  max: 5,                          // B20 fix: bumped from 3 — allows more concurrent requests
+  idleTimeoutMillis: 30000,        // B20 fix: bumped from 5000 — don't close idle connections too quickly
+  connectionTimeoutMillis: 10000,  // B20 fix: bumped from 2000 — Supabase remote pooler needs more time
 });  
 
 // Error handler to prevent idle client connection losses from crashing the server process

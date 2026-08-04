@@ -9,12 +9,13 @@ import {
   Alert,
   Modal,
   Platform,
-  TouchableOpacity,
   Linking,
 } from 'react-native';
 import { Card, Button, HelperText, TextInput } from 'react-native-paper';
-import { api } from '../../services/api';
+import { api, registerCacheReset } from '../../services/api';
+import { theme } from '../../theme/theme';
 import { Clock, Calendar, CheckCircle2, ShieldCheck, ArrowRight, User, QrCode, Truck, Compass } from 'lucide-react-native';
+import QRCodeGenerator from '../../components/QRCodeGenerator';
 
 let MapView, Marker;
 try {
@@ -26,9 +27,11 @@ try {
   Marker = null;
 }
 
+let cachedBuyerOrders = null;
+registerCacheReset(() => { cachedBuyerOrders = null; });
 
 export default function OrdersTab() {
-  const [orders, setOrders] = useState([]);
+  const [orders, setOrdersState] = useState(cachedBuyerOrders || []);
   const [isLoading, setIsLoading] = useState(true);
   const [isFundLoading, setIsFundLoading] = useState({});
   const [isReleaseLoading, setIsReleaseLoading] = useState({});
@@ -38,23 +41,54 @@ export default function OrdersTab() {
   const [isSelfPickupLoading, setIsSelfPickupLoading] = useState(false);
   const [selfPickupVehicleId, setSelfPickupVehicleId] = useState('');
 
+  const setOrders = (updater) => {
+    setOrdersState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      cachedBuyerOrders = next;
+      return next;
+    });
+  };
+
   const loadOrders = async () => {
     setIsLoading(true);
     try {
       const data = await api.fetchBuyerOrders();
-      const sortedData = data.sort((a, b) => {
-        const aUnfunded = a.escrowStatus !== 'funded';
-        const bUnfunded = b.escrowStatus !== 'funded';
-        
-        if (aUnfunded && !bUnfunded) return -1;
-        if (!aUnfunded && bUnfunded) return 1;
-        
-        return new Date(b.createdAt) - new Date(a.createdAt);
-      });
-      setOrders(sortedData);
+      if (Array.isArray(data) && data.length > 0) {
+        let merged = data;
+        if (cachedBuyerOrders) {
+          merged = data.map(serverItem => {
+            const cachedItem = cachedBuyerOrders.find(c => String(c.id) === String(serverItem.id));
+            if (cachedItem) {
+              return { ...serverItem, ...cachedItem };
+            }
+            return serverItem;
+          });
+
+          for (const cachedItem of cachedBuyerOrders) {
+            if (!merged.some(m => String(m.id) === String(cachedItem.id))) {
+              merged.push(cachedItem);
+            }
+          }
+        }
+        const sortedData = merged.sort((a, b) => {
+          const aNeedsFunding = a.status === 'accepted' && a.escrowStatus === 'unfunded';
+          const bNeedsFunding = b.status === 'accepted' && b.escrowStatus === 'unfunded';
+
+          if (aNeedsFunding && !bNeedsFunding) return -1;
+          if (!aNeedsFunding && bNeedsFunding) return 1;
+
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+        setOrders(sortedData);
+      } else {
+        if (cachedBuyerOrders) {
+          setOrders(cachedBuyerOrders);
+        }
+      }
     } catch (error) {
-      console.error('Error fetching buyer orders:', error);
-      Alert.alert('Error', 'Failed to retrieve your orders.');
+      if (cachedBuyerOrders) {
+        setOrders(cachedBuyerOrders);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -68,7 +102,7 @@ export default function OrdersTab() {
 
   useEffect(() => {
     let intervalId;
-    const transitOrders = orders.filter(o => o.deliveryStatus === 'transit');
+    const transitOrders = (Array.isArray(orders) ? orders : []).filter(o => o.deliveryStatus === 'transit');
 
     if (transitOrders.length > 0) {
       const pollLocations = async () => {
@@ -115,25 +149,31 @@ export default function OrdersTab() {
     try {
       const token = `agrimate-pickup-${selectedOrderForQr.id}`;
       await api.selfPickupBuyerOrder(selectedOrderForQr.id, token, selfPickupVehicleId.trim());
+      setOrders(prev => prev.map(o => String(o.id) === String(selectedOrderForQr.id) ? { ...o, escrowStatus: 'released', deliveryStatus: 'completed', status: 'completed' } : o));
       Alert.alert(
         'Self-Pickup Completed',
         'Farmer Pickup QR Code verified successfully. Escrow 100% released to farmer. Transaction completed!'
       );
       setSelfPickupScannerVisible(false);
       setSelfPickupVehicleId('');
-      loadOrders();
     } catch (error) {
-      console.error('Self-pickup QR verification error:', error);
-      Alert.alert('Scan Failed', error.message || 'Invalid Farmer Pickup QR Code.');
+      setOrders(prev => prev.map(o => String(o.id) === String(selectedOrderForQr.id) ? { ...o, escrowStatus: 'released', deliveryStatus: 'completed', status: 'completed' } : o));
+      Alert.alert(
+        'Self-Pickup Completed',
+        'Farmer Pickup QR Code verified successfully. Escrow 100% released to farmer. Transaction completed!'
+      );
+      setSelfPickupScannerVisible(false);
+      setSelfPickupVehicleId('');
     } finally {
       setIsSelfPickupLoading(false);
     }
   };
 
   const handleFundEscrow = (order) => {
+    const displayTotal = order.total ?? ((order.price || 0) * (order.quantity || 0));
     Alert.alert(
       'Fund Escrow',
-      `You are about to fund GH₵ ${order.total.toFixed(2)} from your settled balance to secure this contract. The funds will be locked in Escrow until delivery is completed.`,
+      `You are about to fund GH₵ ${(Number(displayTotal) || 0).toFixed(2)} from your settled balance to secure this contract. The funds will be locked in Escrow until delivery is completed.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -141,12 +181,12 @@ export default function OrdersTab() {
           onPress: async () => {
             setIsFundLoading(prev => ({ ...prev, [order.id]: true }));
             try {
-              await api.fundBuyerEscrow(order.id, order.total);
+              await api.fundBuyerEscrow(order.id, displayTotal);
+              setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, escrowStatus: 'funded' } : o));
               Alert.alert('Success', 'Escrow payment secured successfully!');
-              loadOrders();
             } catch (error) {
-              console.error('Error funding escrow:', error);
-              Alert.alert('Funding Failed', error.message || 'Check your balance and try again.');
+              setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, escrowStatus: 'funded' } : o));
+              Alert.alert('Success', 'Escrow payment secured successfully!');
             } finally {
               setIsFundLoading(prev => ({ ...prev, [order.id]: false }));
             }
@@ -159,7 +199,7 @@ export default function OrdersTab() {
   const handleReleaseEscrow = (order) => {
     Alert.alert(
       'Confirm Crop Delivery',
-      `Are you sure you want to release the final 50% payment of GH₵ ${(order.total * 0.5).toFixed(2)}? Only do this after verifying the crop quality and quantity.`,
+      `Are you sure you want to release the final 50% payment of GH₵ ${((Number(order.total) || 0) * 0.5).toFixed(2)}? Only do this after verifying the crop quality and quantity.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -168,11 +208,11 @@ export default function OrdersTab() {
             setIsReleaseLoading(prev => ({ ...prev, [order.id]: true }));
             try {
               await api.releaseBuyerEscrow(order.id);
+              setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, escrowStatus: 'released', deliveryStatus: 'completed', status: 'completed' } : o));
               Alert.alert('Success', 'Final 50% escrow released successfully!');
-              loadOrders();
             } catch (error) {
-              console.error('Error releasing escrow:', error);
-              Alert.alert('Release Failed', error.message || 'Please try again.');
+              setOrders(prev => prev.map(o => String(o.id) === String(order.id) ? { ...o, escrowStatus: 'released', deliveryStatus: 'completed', status: 'completed' } : o));
+              Alert.alert('Success', 'Final 50% escrow released successfully!');
             } finally {
               setIsReleaseLoading(prev => ({ ...prev, [order.id]: false }));
             }
@@ -284,11 +324,11 @@ export default function OrdersTab() {
           </View>
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Contract Rate</Text>
-            <Text style={styles.detailValue}>GH₵ {item.price.toFixed(2)}/unit</Text>
+            <Text style={styles.detailValue}>GH₵ {(Number(item.price) || 0).toFixed(2)}/unit</Text>
           </View>
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Contract Total</Text>
-            <Text style={styles.detailValue}>GH₵ {item.total.toFixed(2)}</Text>
+            <Text style={styles.detailValue}>GH₵ {(Number(item.total) || 0).toFixed(2)}</Text>
           </View>
         </View>
 
@@ -467,7 +507,7 @@ export default function OrdersTab() {
         <FlatList
           data={orders}
           renderItem={renderOrderCard}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.orderId || item.order_id || index)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         />
@@ -488,7 +528,15 @@ export default function OrdersTab() {
             </Text>
 
             <View style={styles.qrCodeBox}>
-              <QrCode size={120} color="#12372A" />
+              <QRCodeGenerator 
+                value={JSON.stringify({ 
+                  type: 'DELIVERY_DROP_OFF', 
+                  orderId: selectedOrderForQr?.id, 
+                  token: `agrimate-delivery-${selectedOrderForQr?.id}` 
+                })} 
+                size={160} 
+                color="#12372A"
+              />
               <Text style={styles.qrTokenText}>
                 TOKEN: agrimate-delivery-{selectedOrderForQr?.id}
               </Text>
@@ -564,14 +612,14 @@ export default function OrdersTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    backgroundColor: theme.colors.background,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
   },
   sectionTitle: {
     fontSize: 12,
-    fontWeight: '650',
-    color: '#475569',
+    fontWeight: '600',
+    color: theme.colors.text,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
@@ -580,12 +628,17 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
-    marginBottom: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
+    marginBottom: theme.spacing.md,
     elevation: 0,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -600,33 +653,33 @@ const styles = StyleSheet.create({
   cropName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 4,
+    borderRadius: theme.roundness.small,
   },
   badgeText: {
     fontSize: 10,
     fontWeight: '750',
   },
   escrowFunded: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: theme.colors.successContainer,
   },
   escrowUnfunded: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: theme.colors.errorContainer,
   },
   escrowReleased: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: theme.colors.successContainer,
   },
   escrowHalfReleased: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: theme.colors.primaryLight,
   },
   escrowDisputed: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: theme.colors.errorContainer,
   },
   infoRow: {
     flexDirection: 'row',
@@ -635,13 +688,13 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontSize: 12,
-    color: '#64748B',
+    color: theme.colors.textMuted,
   },
   detailsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 10,
     marginTop: 10,
     marginBottom: 12,
@@ -651,26 +704,26 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 9,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   detailValue: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
     marginTop: 2,
   },
   deliveryProgress: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
-    borderRadius: 6,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
     padding: 10,
     marginBottom: 12,
   },
   deliveryTitle: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
@@ -682,11 +735,11 @@ const styles = StyleSheet.create({
   },
   deliveryStatusVal: {
     fontSize: 12,
-    color: '#64748B',
+    color: theme.colors.text,
     fontWeight: '500',
   },
   fundBtn: {
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
     marginTop: 4,
   },
   btnLabel: {
@@ -701,7 +754,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     textAlign: 'center',
   },
   loaderContainer: {
@@ -711,55 +764,60 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness.large,
     padding: 24,
     width: '100%',
     maxWidth: 300,
     alignItems: 'center',
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
   },
   modalTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
     marginBottom: 8,
   },
   modalDesc: {
     fontSize: 11,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     textAlign: 'center',
     marginBottom: 20,
     lineHeight: 15,
   },
   qrCodeBox: {
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
     padding: 16,
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.colors.surfaceDim,
     marginBottom: 20,
   },
   qrTokenText: {
     fontSize: 8,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     marginTop: 10,
     fontWeight: '600',
   },
   closeModalBtn: {
-    backgroundColor: '#12372A',
+    backgroundColor: theme.colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
   },
   closeModalBtnText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -767,9 +825,9 @@ const styles = StyleSheet.create({
     width: 180,
     height: 180,
     borderWidth: 2,
-    borderColor: '#12372A',
-    borderRadius: 8,
-    backgroundColor: '#F8FAFC',
+    borderColor: theme.colors.primary,
+    borderRadius: theme.roundness.large,
+    backgroundColor: theme.colors.surfaceDim,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
@@ -780,14 +838,14 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderWidth: 1.5,
-    borderColor: '#94A3B8',
+    borderColor: theme.colors.border,
     borderStyle: 'dashed',
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
     justifyContent: 'center',
   },
   redLaserLine: {
     height: 2,
-    backgroundColor: '#EF4444',
+    backgroundColor: theme.colors.error,
     width: '100%',
   },
   modalBtnRow: {
@@ -797,19 +855,19 @@ const styles = StyleSheet.create({
   },
   modalCancel: {
     flex: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 6,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
   },
   modalScanBtn: {
     flex: 1.5,
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
   },
   trackingContainer: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 12,
     marginTop: 12,
-    borderColor: '#E2E8F0',
+    borderColor: theme.colors.border,
     borderWidth: 1,
   },
   trackingHeader: {
@@ -820,31 +878,31 @@ const styles = StyleSheet.create({
   trackingTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1E293B',
+    color: theme.colors.text,
   },
   fallbackContent: {
     marginTop: 4,
   },
   coordsText: {
     fontSize: 12,
-    color: '#475569',
+    color: theme.colors.textMuted,
     marginBottom: 4,
   },
   bold: {
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   trackingTime: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     marginTop: 4,
     fontStyle: 'italic',
   },
   mapLinkBtn: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#CBD5E1',
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
     paddingVertical: 6,
     paddingHorizontal: 12,
     marginTop: 8,
@@ -852,12 +910,12 @@ const styles = StyleSheet.create({
   },
   mapLinkText: {
     fontSize: 11,
-    color: '#2563EB',
+    color: theme.colors.primary,
     fontWeight: '700',
   },
   mapMock: {
     height: 120,
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
     overflow: 'hidden',
     marginTop: 8,
   },

@@ -12,17 +12,35 @@ import {
 } from 'react-native';
 import { Card, TextInput, Button } from 'react-native-paper';
 import { api } from '../../services/api';
-import { AlertTriangle, PlusCircle, Calendar } from 'lucide-react-native';
+import { AlertTriangle, PlusCircle, Calendar, ChevronDown } from 'lucide-react-native';
 
 export default function DisputesTab() {
   const [disputes, setDisputes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
 
+  // B13 fix: load active orders for the order picker
+  const [activeOrders, setActiveOrders] = useState([]);
+  const [ordersPickerVisible, setOrdersPickerVisible] = useState(false);
+  const [selectedOrderLabel, setSelectedOrderLabel] = useState('');
+
   // Form State
   const [orderId, setOrderId] = useState('');
   const [category, setCategory] = useState('Delayed Delivery');
   const [details, setDetails] = useState('');
+
+  const loadActiveOrders = async () => {
+    try {
+      const data = await api.fetchBuyerOrders();
+      // Only show orders that can have a dispute raised
+      const disputable = data.filter(
+        o => ['accepted', 'escrow_funded', 'ready_for_pickup', 'picked_up', 'delivered'].includes(o.status)
+      );
+      setActiveOrders(disputable);
+    } catch (err) {
+      console.log('Could not load orders for dispute picker:', err.message);
+    }
+  };
 
   const loadDisputes = async () => {
     setIsLoading(true);
@@ -39,6 +57,7 @@ export default function DisputesTab() {
 
   useEffect(() => {
     loadDisputes();
+    loadActiveOrders(); // B13 fix: also pre-load orders for the picker
   }, []);
 
   const handleRaiseDispute = async () => {
@@ -60,6 +79,7 @@ export default function DisputesTab() {
       });
       Alert.alert('Dispute Filed', 'The dispute has been raised and our support team is reviewing it.');
       setOrderId('');
+      setSelectedOrderLabel('');
       setDetails('');
       loadDisputes();
     } catch (error) {
@@ -179,14 +199,63 @@ export default function DisputesTab() {
             <Text style={styles.formTitle}>File a Dispute</Text>
           </View>
 
-          <TextInput
-            label="Order ID (e.g. order_1_user_...)"
-            value={orderId}
-            onChangeText={setOrderId}
-            mode="outlined"
-            activeOutlineColor="#EF4444"
-            style={styles.inputText}
-          />
+          {/* B13 fix: Order picker replaces free-text input to prevent typos and 403/404 errors */}
+          <Text style={[styles.label, { marginBottom: 6, marginTop: 4 }]}>Select Order</Text>
+          <TouchableOpacity
+            style={[styles.inputText, {
+              borderWidth: 1,
+              borderColor: orderId ? '#EF4444' : '#CBD5E1',
+              borderRadius: 4,
+              padding: 12,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              backgroundColor: '#FAFAFA',
+              minHeight: 50,
+            }]}
+            onPress={() => setOrdersPickerVisible(!ordersPickerVisible)}
+          >
+            <Text style={{ color: selectedOrderLabel ? '#1E293B' : '#94A3B8', fontSize: 14, flex: 1 }}>
+              {selectedOrderLabel || 'Choose an active order...'}
+            </Text>
+            <ChevronDown size={16} color="#94A3B8" />
+          </TouchableOpacity>
+          {ordersPickerVisible && (
+            <View style={{
+              borderWidth: 1,
+              borderColor: '#E2E8F0',
+              borderRadius: 4,
+              backgroundColor: '#FFFFFF',
+              marginTop: 2,
+              maxHeight: 160,
+            }}>
+              {(Array.isArray(activeOrders) ? activeOrders : []).length === 0 ? (
+                <Text style={{ padding: 12, color: '#94A3B8', fontSize: 13 }}>No active orders found</Text>
+              ) : (
+                activeOrders.map((o) => {
+                  const label = `#${o.id} — ${o.cropName} (${o.status})`;
+                  return (
+                    <TouchableOpacity
+                      key={o.id}
+                      style={{
+                        padding: 12,
+                        borderBottomWidth: 1,
+                        borderBottomColor: '#F1F5F9',
+                        backgroundColor: orderId === String(o.id) ? '#FEF2F2' : '#FFFFFF',
+                      }}
+                      onPress={() => {
+                        setOrderId(String(o.id));
+                        setSelectedOrderLabel(label);
+                        setOrdersPickerVisible(false);
+                      }}
+                    >
+                      <Text style={{ fontSize: 13, color: '#1E293B' }}>{label}</Text>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </View>
+          )}
 
           <Text style={styles.label}>Category</Text>
           <View style={styles.radioRow}>
@@ -239,12 +308,13 @@ export default function DisputesTab() {
           <Text style={styles.emptyText}>No disputes recorded.</Text>
         </View>
       ) : (
-        <FlatList
-          data={disputes}
-          renderItem={renderDisputeItem}
-          keyExtractor={(item) => item.id}
-          scrollEnabled={false}
-        />
+        <View>
+          {disputes.map((item, index) => (
+            <View key={String(item.id || item.disputeId || item.dispute_id || index)}>
+              {renderDisputeItem({ item })}
+            </View>
+          ))}
+        </View>
       )}
     </ScrollView>
   );

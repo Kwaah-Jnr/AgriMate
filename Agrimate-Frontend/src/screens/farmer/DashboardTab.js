@@ -139,7 +139,7 @@ export default function DashboardTab({ user, onNavigate }) {
           <View style={[styles.iconBox, { backgroundColor: '#FDF2F8' }]}>
             <Star size={16} color="#DB2777" />
           </View>
-          <Text style={styles.statValue}>{(summary?.ratingScore || 5.0).toFixed(1)}</Text>
+          <Text style={styles.statValue}>{(Number(summary?.ratingScore || 5.0)).toFixed(1)}</Text>
           <Text style={styles.statLabel}>Rating Score</Text>
           <View style={styles.cardArrow}>
             <ArrowRight size={12} color="#94A3B8" />

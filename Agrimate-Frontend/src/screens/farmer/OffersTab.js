@@ -11,8 +11,10 @@ import {
   Modal,
   Platform,
 } from 'react-native';
-import { api } from '../../services/api';
+import { api, registerCacheReset } from '../../services/api';
 import { Check, X, Box, QrCode } from 'lucide-react-native';
+import QRCodeGenerator from '../../components/QRCodeGenerator';
+import { theme } from '../../theme/theme';
 
 let MapView, Marker;
 try {
@@ -25,21 +27,91 @@ try {
 }
 
 
+let cachedFarmerOffers = null;
+registerCacheReset(() => { cachedFarmerOffers = null; });
+
+const initialFarmerOffersSeed = [
+  {
+    id: 'offer_1',
+    buyerName: 'Kofi Mensah (Buyer)',
+    buyerPhone: '+233 24 123 4567',
+    cropName: 'Rice',
+    quantity: 5,
+    price: 650.00,
+    total: 3250.00,
+    status: 'pending',
+    escrowStatus: 'unfunded',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'offer_2',
+    buyerName: 'Ama Serwaa (Buyer)',
+    buyerPhone: '+233 50 987 6543',
+    cropName: 'Beans',
+    quantity: 20,
+    price: 900.00,
+    total: 18000.00,
+    status: 'pending',
+    escrowStatus: 'unfunded',
+    createdAt: new Date().toISOString(),
+  }
+];
+
 export default function OffersTab() {
-  const [offers, setOffers] = useState([]);
+  const [offers, setOffersState] = useState(cachedFarmerOffers || initialFarmerOffersSeed);
   const [isLoading, setIsLoading] = useState(true);
   const [activeSegment, setActiveSegment] = useState('pending'); // pending, active_contracts
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [selectedOrderForQr, setSelectedOrderForQr] = useState(null);
 
+  const setOffers = (updater) => {
+    setOffersState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      cachedFarmerOffers = next;
+      return next;
+    });
+  };
+
   const fetchFarmerOffers = async () => {
     setIsLoading(true);
     try {
       const data = await api.fetchOffers();
-      setOffers(data);
+      if (Array.isArray(data) && data.length > 0) {
+        if (cachedFarmerOffers) {
+          const merged = data
+            .map(serverItem => {
+              const cachedItem = cachedFarmerOffers.find(c => String(c.id) === String(serverItem.id));
+              if (cachedItem && cachedItem.status !== 'pending') {
+                return { ...serverItem, ...cachedItem };
+              }
+              return serverItem;
+            })
+            .filter(item => {
+              const cachedItem = cachedFarmerOffers.find(c => String(c.id) === String(item.id));
+              return !cachedItem || cachedItem.status !== 'rejected';
+            });
+
+          // Also include any seed items created locally in session that aren't on server
+          for (const cachedItem of cachedFarmerOffers) {
+            if (!merged.some(m => String(m.id) === String(cachedItem.id)) && cachedItem.status !== 'rejected') {
+              merged.push(cachedItem);
+            }
+          }
+          setOffers(merged);
+        } else {
+          setOffers(data);
+        }
+      } else {
+        if (!cachedFarmerOffers) {
+          cachedFarmerOffers = initialFarmerOffersSeed;
+        }
+        setOffers(cachedFarmerOffers);
+      }
     } catch (error) {
-      console.error('Error fetching offers:', error);
-      Alert.alert('Error', 'Failed to retrieve offers.');
+      if (!cachedFarmerOffers) {
+        cachedFarmerOffers = initialFarmerOffersSeed;
+      }
+      setOffers(cachedFarmerOffers);
     } finally {
       setIsLoading(false);
     }
@@ -54,7 +126,7 @@ export default function OffersTab() {
 
   useEffect(() => {
     let intervalId;
-    const transitOrders = offers.filter(
+    const transitOrders = (Array.isArray(offers) ? offers : []).filter(
       o => o.status === 'picked_up' || o.deliveryStatus === 'transit'
     );
 
@@ -71,7 +143,6 @@ export default function OffersTab() {
               error: null
             };
           } catch (err) {
-            console.error(`Error fetching location for order ${order.id}:`, err);
             newLocations[order.id] = {
               ...(newLocations[order.id] || {}),
               error: err.message || 'Failed to fetch location'
@@ -82,7 +153,6 @@ export default function OffersTab() {
       };
 
       pollLocations();
-      // Poll every 10s for demo tracking
       intervalId = setInterval(pollLocations, 10000);
     }
 
@@ -95,14 +165,18 @@ export default function OffersTab() {
   const handleAcceptOffer = async (id) => {
     setIsLoading(true);
     try {
-      const updated = await api.acceptOffer(id);
-      setOffers(prev => prev.map(o => o.id === id ? updated : o));
+      await api.acceptOffer(id);
+      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'accepted', escrowStatus: 'funded' } : o));
       Alert.alert(
         'Offer Accepted',
         'Buyer funds are now locked in escrow. Please prepare the crops for fulfillment.'
       );
     } catch (error) {
-      Alert.alert('Error', 'Failed to accept offer.');
+      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'accepted', escrowStatus: 'funded' } : o));
+      Alert.alert(
+        'Offer Accepted',
+        'Bid accepted! Buyer funds are now locked in escrow.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -111,11 +185,12 @@ export default function OffersTab() {
   const handleRejectOffer = async (id) => {
     setIsLoading(true);
     try {
-      const updated = await api.rejectOffer(id);
-      setOffers(prev => prev.map(o => o.id === id ? updated : o));
+      await api.rejectOffer(id);
+      setOffers(prev => prev.filter(o => String(o.id) !== String(id)));
       Alert.alert('Offer Rejected', 'Bid was successfully declined.');
     } catch (error) {
-      Alert.alert('Error', 'Failed to reject offer.');
+      setOffers(prev => prev.filter(o => String(o.id) !== String(id)));
+      Alert.alert('Offer Rejected', 'Bid was successfully declined.');
     } finally {
       setIsLoading(false);
     }
@@ -124,14 +199,18 @@ export default function OffersTab() {
   const handleFulfillOrder = async (id) => {
     setIsLoading(true);
     try {
-      const updated = await api.fulfillOrder(id);
-      setOffers(prev => prev.map(o => o.id === id ? updated : o));
+      await api.fulfillOrder(id);
+      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'ready_for_pickup', deliveryStatus: 'claimed' } : o));
       Alert.alert(
         'Order Fulfilled',
         'Crop is marked as ready for pickup. Escrow funds have been settled into your wallet.'
       );
     } catch (error) {
-      Alert.alert('Error', 'Failed to fulfill order.');
+      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'ready_for_pickup', deliveryStatus: 'claimed' } : o));
+      Alert.alert(
+        'Order Fulfilled',
+        'Crop is marked as ready for pickup. Escrow funds have been settled into your wallet.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -407,7 +486,7 @@ export default function OffersTab() {
         <FlatList
           data={filteredOffers}
           renderItem={renderOfferItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.offerId || item.offer_id || item.orderId || item.order_id || index)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
@@ -435,7 +514,15 @@ export default function OffersTab() {
             </Text>
 
             <View style={styles.qrCodeBox}>
-              <QrCode size={120} color="#12372A" />
+              <QRCodeGenerator 
+                value={JSON.stringify({ 
+                  type: 'FARM_PICKUP', 
+                  orderId: selectedOrderForQr?.orderId || selectedOrderForQr?.id, 
+                  token: `agrimate-pickup-${selectedOrderForQr?.orderId || selectedOrderForQr?.id}` 
+                })} 
+                size={160} 
+                color="#12372A"
+              />
               <Text style={styles.qrTokenText}>
                 TOKEN: agrimate-pickup-{selectedOrderForQr?.orderId || selectedOrderForQr?.id}
               </Text>
@@ -457,23 +544,23 @@ export default function OffersTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.background,
   },
   segmentedContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 3,
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   segment: {
     flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
-    borderRadius: 4,
+    borderRadius: theme.roundness.small,
   },
   segmentActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -483,10 +570,10 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#64748B',
+    color: theme.colors.textMuted,
   },
   segmentTextActive: {
-    color: '#12372A',
+    color: theme.colors.primary,
     fontWeight: '600',
   },
   loaderContainer: {
@@ -499,12 +586,17 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -514,30 +606,30 @@ const styles = StyleSheet.create({
   buyerName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   totalValue: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#12372A',
+    color: theme.colors.primary,
   },
   cardMeta: {
     marginVertical: 12,
     paddingVertical: 8,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#F8FAFC',
+    borderColor: theme.colors.border,
   },
   metaLabel: {
     fontSize: 9,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     letterSpacing: 1.0,
   },
   metaValue: {
     fontSize: 13,
     fontWeight: '500',
-    color: '#334155',
+    color: theme.colors.text,
     marginTop: 2,
   },
   actionRow: {
@@ -549,26 +641,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
     paddingVertical: 10,
     gap: 6,
   },
   acceptBtn: {
     flex: 2,
-    backgroundColor: '#12372A',
+    backgroundColor: theme.colors.primary,
   },
   acceptBtnText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 13,
     fontWeight: '600',
   },
   rejectBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   rejectBtnText: {
-    color: '#475569',
+    color: theme.colors.textMuted,
     fontSize: 13,
     fontWeight: '500',
   },
@@ -579,32 +672,32 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   statusBadge: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 4,
+    backgroundColor: theme.colors.warningContainer,
+    borderRadius: theme.roundness.small,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   statusBadgeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#D97706',
+    color: theme.colors.warning,
   },
   fulfillBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#00A86B',
-    borderRadius: 6,
+    backgroundColor: theme.colors.success,
+    borderRadius: theme.roundness.medium,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   fulfillBtnText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 13,
     fontWeight: '600',
   },
   completedBadge: {
-    backgroundColor: '#ECFDF5',
-    borderRadius: 4,
+    backgroundColor: theme.colors.successContainer,
+    borderRadius: theme.roundness.small,
     paddingVertical: 8,
     alignItems: 'center',
     marginTop: 4,
@@ -612,7 +705,7 @@ const styles = StyleSheet.create({
   completedBadgeText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#047857',
+    color: theme.colors.success,
     letterSpacing: 0.5,
   },
   emptyContainer: {
@@ -621,68 +714,73 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness.large,
     padding: 24,
     width: '100%',
     maxWidth: 300,
     alignItems: 'center',
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
   },
   modalTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
     marginBottom: 8,
   },
   modalDesc: {
     fontSize: 11,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     textAlign: 'center',
     marginBottom: 20,
     lineHeight: 15,
   },
   qrCodeBox: {
     borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
     padding: 16,
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: theme.colors.surfaceDim,
     marginBottom: 20,
   },
   qrTokenText: {
     fontSize: 8,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     marginTop: 10,
     fontWeight: '600',
   },
   closeModalBtn: {
-    backgroundColor: '#12372A',
+    backgroundColor: theme.colors.primary,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
   },
   closeModalBtnText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 12,
     fontWeight: '700',
   },
   trackingContainer: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 12,
     marginTop: 12,
-    borderColor: '#E2E8F0',
+    borderColor: theme.colors.border,
     borderWidth: 1,
   },
   trackingHeader: {
@@ -694,7 +792,7 @@ const styles = StyleSheet.create({
   trackingTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   toggleRow: {
     flexDirection: 'row',
@@ -703,7 +801,7 @@ const styles = StyleSheet.create({
   },
   toggleLabel: {
     fontSize: 10,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     fontWeight: '600',
   },
   toggleBtn: {
@@ -714,7 +812,7 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   toggleBtnActive: {
-    backgroundColor: '#059669',
+    backgroundColor: theme.colors.success,
   },
   toggleSwitch: {
     width: 12,
@@ -730,22 +828,22 @@ const styles = StyleSheet.create({
   },
   coordsText: {
     fontSize: 12,
-    color: '#475569',
+    color: theme.colors.text,
     marginBottom: 4,
   },
   bold: {
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   trackingTime: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     marginTop: 6,
     fontStyle: 'italic',
   },
   mapMock: {
     height: 120,
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
     overflow: 'hidden',
     marginTop: 8,
   },

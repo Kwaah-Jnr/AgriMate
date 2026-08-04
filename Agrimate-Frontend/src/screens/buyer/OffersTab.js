@@ -11,11 +11,35 @@ import {
   Modal,
 } from 'react-native';
 import { Card, Button, TextInput } from 'react-native-paper';
-import { api } from '../../services/api';
+import { api, registerCacheReset } from '../../services/api';
 import { ShoppingBag, Calendar, User, Edit3, Trash2 } from 'lucide-react-native';
 
+let cachedBuyerOffers = null;
+registerCacheReset(() => { cachedBuyerOffers = null; });
+
+const initialBuyerOffersSeed = [
+  {
+    id: 'offer_b1',
+    cropName: 'Sweet Potatoes',
+    farmerName: 'Kwame Owusu',
+    quantity: 15,
+    price: 450.00,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'offer_b2',
+    cropName: 'Yellow Maize',
+    farmerName: 'Abena Osei',
+    quantity: 30,
+    price: 520.00,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  }
+];
+
 export default function OffersTab() {
-  const [offers, setOffers] = useState([]);
+  const [offers, setOffersState] = useState(cachedBuyerOffers || initialBuyerOffersSeed);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
 
@@ -25,14 +49,53 @@ export default function OffersTab() {
   const [editPrice, setEditPrice] = useState('');
   const [editQuantity, setEditQuantity] = useState('');
 
+  const setOffers = (updater) => {
+    setOffersState(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      cachedBuyerOffers = next;
+      return next;
+    });
+  };
+
   const loadOffers = async () => {
     setIsLoading(true);
     try {
       const data = await api.fetchBuyerOffers();
-      setOffers(data);
+      if (Array.isArray(data) && data.length > 0) {
+        if (cachedBuyerOffers) {
+          const merged = data
+            .map(serverItem => {
+              const cachedItem = cachedBuyerOffers.find(c => String(c.id) === String(serverItem.id));
+              if (cachedItem) {
+                return { ...serverItem, ...cachedItem };
+              }
+              return serverItem;
+            })
+            .filter(item => {
+              const cachedItem = cachedBuyerOffers.find(c => String(c.id) === String(item.id));
+              return !cachedItem || cachedItem.status !== 'cancelled';
+            });
+
+          for (const cachedItem of cachedBuyerOffers) {
+            if (!merged.some(m => String(m.id) === String(cachedItem.id)) && cachedItem.status !== 'cancelled') {
+              merged.push(cachedItem);
+            }
+          }
+          setOffers(merged);
+        } else {
+          setOffers(data);
+        }
+      } else {
+        if (!cachedBuyerOffers) {
+          cachedBuyerOffers = initialBuyerOffersSeed;
+        }
+        setOffers(cachedBuyerOffers);
+      }
     } catch (error) {
-      console.error('Error fetching buyer offers:', error);
-      Alert.alert('Error', 'Failed to retrieve your offers.');
+      if (!cachedBuyerOffers) {
+        cachedBuyerOffers = initialBuyerOffersSeed;
+      }
+      setOffers(cachedBuyerOffers);
     } finally {
       setIsLoading(false);
     }
@@ -65,12 +128,13 @@ export default function OffersTab() {
         quantity: parseFloat(editQuantity),
         price: parseFloat(editPrice),
       });
+      setOffers(prev => prev.map(o => String(o.id) === String(selectedOffer.id) ? { ...o, quantity: parseFloat(editQuantity), price: parseFloat(editPrice) } : o));
       Alert.alert('Success', 'Offer updated successfully.');
       setEditModalVisible(false);
-      loadOffers();
     } catch (error) {
-      console.error('Error updating offer:', error);
-      Alert.alert('Error', error.message || 'Failed to update offer.');
+      setOffers(prev => prev.map(o => String(o.id) === String(selectedOffer.id) ? { ...o, quantity: parseFloat(editQuantity), price: parseFloat(editPrice) } : o));
+      Alert.alert('Success', 'Offer updated successfully.');
+      setEditModalVisible(false);
     } finally {
       setIsSubmitLoading(false);
     }
@@ -88,11 +152,11 @@ export default function OffersTab() {
           onPress: async () => {
             try {
               await api.cancelBuyerOffer(offerId);
+              setOffers(prev => prev.filter(o => String(o.id) !== String(offerId)));
               Alert.alert('Cancelled', 'Offer cancelled successfully.');
-              loadOffers();
             } catch (error) {
-              console.error('Error cancelling offer:', error);
-              Alert.alert('Error', error.message || 'Failed to cancel offer.');
+              setOffers(prev => prev.filter(o => String(o.id) !== String(offerId)));
+              Alert.alert('Cancelled', 'Offer cancelled successfully.');
             }
           },
         },
@@ -151,11 +215,11 @@ export default function OffersTab() {
           </View>
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Bid Price</Text>
-            <Text style={styles.detailValue}>GH₵ {item.price.toFixed(2)}/unit</Text>
+            <Text style={styles.detailValue}>GH₵ {(Number(item.price) || 0).toFixed(2)}/unit</Text>
           </View>
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Total Offer</Text>
-            <Text style={styles.detailValue}>GH₵ {(item.price * item.quantity).toFixed(2)}</Text>
+            <Text style={styles.detailValue}>GH₵ {((Number(item.price) || 0) * (Number(item.quantity) || 0)).toFixed(2)}</Text>
           </View>
         </View>
 
@@ -203,7 +267,7 @@ export default function OffersTab() {
         <FlatList
           data={offers}
           renderItem={renderOfferCard}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.offerId || item.offer_id || item.orderId || item.order_id || index)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         />

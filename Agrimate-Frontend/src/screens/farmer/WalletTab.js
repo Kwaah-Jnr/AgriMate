@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { api } from '../../services/api';
 import { Wallet, Lock, ArrowUpRight, ArrowDownLeft, X, RefreshCw } from 'lucide-react-native';
+import { theme } from '../../theme/theme';
 
 export default function WalletTab() {
   const [balance, setBalance] = useState({ settled: 0, escrow: 0 });
@@ -114,7 +115,7 @@ export default function WalletTab() {
           <Text style={styles.txDate}>{dateStr} • {(item.status || 'success').toUpperCase()}</Text>
         </View>
         <Text style={[styles.txAmount, { color: amountColor }]}>
-          {amountPrefix}GH₵{item.amount.toFixed(2)}
+          {amountPrefix}GH₵{(Number(item.amount) || 0).toFixed(2)}
         </Text>
       </View>
     );
@@ -129,7 +130,7 @@ export default function WalletTab() {
             <Wallet size={16} color="#64748B" />
             <Text style={styles.balanceLabel}>Settled Balance</Text>
           </View>
-          <Text style={styles.settledAmount}>GH₵{balance.settled.toFixed(2)}</Text>
+          <Text style={styles.settledAmount}>GH₵{(Number(balance?.settled) || 0).toFixed(2)}</Text>
           <Text style={styles.balanceSubtext}>Available for withdrawal</Text>
         </View>
 
@@ -140,7 +141,7 @@ export default function WalletTab() {
             <Lock size={16} color="#64748B" />
             <Text style={styles.balanceLabel}>Escrow Balance</Text>
           </View>
-          <Text style={styles.escrowAmount}>GH₵{balance.escrow.toFixed(2)}</Text>
+          <Text style={styles.escrowAmount}>GH₵{(Number(balance?.escrow) || 0).toFixed(2)}</Text>
           <Text style={styles.balanceSubtext}>Locked in active transits</Text>
         </View>
       </View>
@@ -174,7 +175,7 @@ export default function WalletTab() {
         <FlatList
           data={history}
           renderItem={renderTransactionItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.transactionId || item.transaction_id || item.historyId || item.history_id || index)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
@@ -204,7 +205,7 @@ export default function WalletTab() {
             <ScrollView contentContainerStyle={styles.modalForm} keyboardShouldPersistTaps="handled">
               <View style={styles.infoBanner}>
                 <Text style={styles.infoBannerText}>
-                  Your withdrawal will be processed instantly and sent to your mobile wallet. Max withdrawal: GH₵{balance.settled.toFixed(2)}.
+                  Your withdrawal will be processed instantly and sent to your mobile wallet. Max withdrawal: GH₵{(Number(balance?.settled) || 0).toFixed(2)}.
                 </Text>
               </View>
 
@@ -261,16 +262,21 @@ export default function WalletTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.background,
   },
   balancesContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
     paddingVertical: 20,
     marginBottom: 16,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   balanceBox: {
     flex: 1,
@@ -279,7 +285,7 @@ const styles = StyleSheet.create({
   },
   balanceDivider: {
     width: 1,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: theme.colors.border,
   },
   balanceHeader: {
     flexDirection: 'row',
@@ -290,21 +296,21 @@ const styles = StyleSheet.create({
   balanceLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#64748B',
+    color: theme.colors.textMuted,
   },
   settledAmount: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#12372A',
+    color: theme.colors.primary,
   },
   escrowAmount: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#D97706',
+    color: theme.colors.warning,
   },
   balanceSubtext: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     marginTop: 4,
   },
   actionRow: {
@@ -314,14 +320,19 @@ const styles = StyleSheet.create({
   },
   withdrawBtn: {
     flex: 1,
-    backgroundColor: '#12372A',
-    borderRadius: 6,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.roundness.medium,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   withdrawBtnText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -331,16 +342,17 @@ const styles = StyleSheet.create({
   refreshBtn: {
     width: 48,
     height: 48,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
   },
   historyTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
     marginBottom: 12,
   },
   loaderContainer: {
@@ -357,7 +369,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.colors.border,
   },
   txIconContainer: {
     width: 36,
@@ -374,11 +386,11 @@ const styles = StyleSheet.create({
   txDesc: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: theme.colors.text,
   },
   txDate: {
     fontSize: 11,
-    color: '#6B7280',
+    color: theme.colors.textMuted,
     marginTop: 2,
   },
   txAmount: {
@@ -391,83 +403,83 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    backgroundColor: theme.colors.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    backgroundColor: theme.colors.surface,
+    borderTopLeftRadius: theme.roundness.large,
+    borderTopRightRadius: theme.roundness.large,
     maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: theme.spacing.lg,
     borderBottomWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: theme.colors.border,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   modalForm: {
-    padding: 20,
+    padding: theme.spacing.lg,
   },
   infoBanner: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: theme.colors.primaryLight,
     borderWidth: 1,
-    borderColor: '#DBEAFE',
-    borderRadius: 6,
+    borderColor: theme.colors.primary,
+    borderRadius: theme.roundness.small,
     padding: 12,
     marginBottom: 16,
   },
   infoBannerText: {
     fontSize: 12,
-    color: '#1E40AF',
+    color: theme.colors.primary,
     lineHeight: 16,
   },
   inputGroup: {
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   label: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#475569',
+    color: theme.colors.textMuted,
     marginBottom: 6,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 6,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
-    color: '#0F172A',
-    backgroundColor: '#FAFAFA',
+    color: theme.colors.text,
+    backgroundColor: theme.colors.surface,
   },
   segmentedContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 3,
   },
   segment: {
     flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
-    borderRadius: 4,
+    borderRadius: theme.roundness.small,
   },
   segmentActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -477,22 +489,27 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#64748B',
+    color: theme.colors.textMuted,
   },
   segmentTextActive: {
-    color: '#12372A',
+    color: theme.colors.primary,
     fontWeight: '600',
   },
   submitBtn: {
-    backgroundColor: '#12372A',
-    borderRadius: 6,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.roundness.medium,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 10,
     marginBottom: 20,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   submitBtnText: {
-    color: '#FFFFFF',
+    color: theme.colors.white,
     fontSize: 15,
     fontWeight: '600',
   },

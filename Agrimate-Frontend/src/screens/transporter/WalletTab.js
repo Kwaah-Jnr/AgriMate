@@ -25,9 +25,14 @@ export default function WalletTab() {
   const loadWalletInfo = async () => {
     setIsLoading(true);
     try {
-      // Re-use fetchTransporterDashboard to get wallet balance
-      const data = await api.fetchTransporterDashboard();
-      setBalanceInfo(data);
+      // B12 fix: use the dedicated fetchTransporterWallet instead of fetchTransporterDashboard
+      const data = await api.fetchTransporterWallet();
+      // Flatten response shape to match what the rest of this tab expects
+      setBalanceInfo({
+        settledBalance: data.balance?.settled ?? 0,
+        escrowBalance: data.balance?.escrow ?? 0,
+        history: data.history || [],
+      });
     } catch (error) {
       console.error('Error fetching wallet info:', error);
     } finally {
@@ -56,8 +61,8 @@ export default function WalletTab() {
 
     setIsSubmitLoading(true);
     try {
-      // Simulate withdrawal call
-      await api.withdrawFunds(amount, momoNumber);
+      // B12 fix: use withdrawTransporterFunds — not withdrawFunds (which hits farmer route)
+      await api.withdrawTransporterFunds(amount, momoNumber);
       Alert.alert('Success', `Withdrawal of GH₵ ${amount.toFixed(2)} requested successfully.`);
       setWithdrawModalVisible(false);
       setWithdrawAmount('');

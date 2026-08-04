@@ -12,6 +12,7 @@ import {
 import { Card } from 'react-native-paper';
 import { api } from '../../services/api';
 import { Wallet, MapPin, Navigation, Calendar } from 'lucide-react-native';
+import { theme } from '../../theme/theme';
 
 export default function EarningsTab() {
   const [earnings, setEarnings] = useState([]);
@@ -41,7 +42,8 @@ export default function EarningsTab() {
             <Text style={styles.cropName}>{item.cropName}</Text>
             <Text style={styles.orderId}>Order #{item.orderId}</Text>
           </View>
-          <Text style={styles.amount}>+GH₵ {item.amount.toFixed(2)}</Text>
+          {/* B4 fix: guard against null amount to prevent TypeError */}
+          <Text style={styles.amount}>+GH₵ {(parseFloat(item.amount) || 0).toFixed(2)}</Text>
         </View>
 
         <View style={styles.routeSection}>
@@ -71,7 +73,8 @@ export default function EarningsTab() {
     );
   }
 
-  const totalPayout = earnings.reduce((sum, item) => sum + item.amount, 0);
+  // B4 fix: guard each item.amount in case backend returns null
+  const totalPayout = earnings.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
 
   return (
     <View style={styles.container}>
@@ -100,7 +103,7 @@ export default function EarningsTab() {
         <FlatList
           data={earnings}
           renderItem={renderEarningCard}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.jobId || item.job_id || item.transactionId || item.transaction_id || index)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         />
@@ -112,44 +115,49 @@ export default function EarningsTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    backgroundColor: theme.colors.background,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
   },
   summaryBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
     padding: 16,
     marginBottom: 20,
     gap: 16,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   summaryIconBox: {
     width: 44,
     height: 44,
-    borderRadius: 8,
-    backgroundColor: '#ECFDF5',
+    borderRadius: theme.roundness.small,
+    backgroundColor: theme.colors.successContainer,
     alignItems: 'center',
     justifyContent: 'center',
   },
   summaryLabel: {
     fontSize: 11,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   summaryValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800',
-    color: '#0F172A',
+    color: theme.colors.primary,
     marginTop: 2,
   },
   sectionTitle: {
     fontSize: 12,
-    fontWeight: '650',
-    color: '#475569',
+    fontWeight: '600',
+    color: theme.colors.text,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
@@ -158,12 +166,17 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
-    marginBottom: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
+    marginBottom: theme.spacing.md,
     elevation: 0,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -177,22 +190,22 @@ const styles = StyleSheet.create({
   cropName: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   orderId: {
     fontSize: 11,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     fontWeight: '500',
     marginTop: 2,
   },
   amount: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#059669',
+    color: theme.colors.success,
   },
   routeSection: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 10,
     gap: 6,
     marginBottom: 12,
@@ -203,7 +216,7 @@ const styles = StyleSheet.create({
   },
   routeText: {
     fontSize: 11,
-    color: '#475569',
+    color: theme.colors.text,
     fontWeight: '500',
   },
   dateRow: {
@@ -212,7 +225,7 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   emptyContainer: {
@@ -224,20 +237,22 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     textAlign: 'center',
   },
   refreshBtn: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.colors.surfaceDim,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
     marginTop: 8,
   },
   refreshBtnText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#475569',
+    color: theme.colors.text,
   },
   loaderContainer: {
     flex: 1,

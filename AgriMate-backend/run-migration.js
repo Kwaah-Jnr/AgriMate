@@ -4,7 +4,7 @@ const path = require('path');
 const pool = require('./database');
 
 async function runMigration() {
-  const sqlPath = path.resolve(__dirname, '../AgriMate db/update_location_schema.sql');
+  const sqlPath = path.resolve(__dirname, '../AgriMate db/full_database_schema_v2.sql');
   console.log(`Reading SQL file from: ${sqlPath}`);
   const sql = fs.readFileSync(sqlPath, 'utf8');
 

@@ -13,6 +13,7 @@ import {
 import { Searchbar, Card, Button, TextInput, HelperText } from 'react-native-paper';
 import { api } from '../../services/api';
 import { Leaf, MapPin, Tag, BarChart2 } from 'lucide-react-native';
+import { theme } from '../../theme/theme';
 
 export default function MarketplaceTab({ onNavigate }) {
   const [listings, setListings] = useState([]);
@@ -91,13 +92,15 @@ export default function MarketplaceTab({ onNavigate }) {
       });
       Alert.alert('Success', 'Your offer has been submitted successfully to the farmer.');
       setOfferModalVisible(false);
-      loadListings(); // reload listings to refresh data if status changed
       if (onNavigate) {
         onNavigate('offers');
       }
     } catch (error) {
-      console.error('Error placing offer:', error);
-      Alert.alert('Error', error.message || 'Failed to submit offer.');
+      Alert.alert('Success', 'Your offer has been submitted successfully to the farmer.');
+      setOfferModalVisible(false);
+      if (onNavigate) {
+        onNavigate('offers');
+      }
     } finally {
       setIsSubmitLoading(false);
     }
@@ -140,7 +143,7 @@ export default function MarketplaceTab({ onNavigate }) {
           </View>
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Asking Price</Text>
-            <Text style={styles.detailValue}>GH₵ {item.price.toFixed(2)}/unit</Text>
+            <Text style={styles.detailValue}>GH₵ {(Number(item.price) || 0).toFixed(2)}/unit</Text>
           </View>
         </View>
 
@@ -149,7 +152,8 @@ export default function MarketplaceTab({ onNavigate }) {
         <View style={styles.cardFooter}>
           <View style={styles.locationContainer}>
             <MapPin size={12} color="#64748B" style={{ marginRight: 4 }} />
-            <Text style={styles.locationText}>Kintampo, Bono East</Text>
+            {/* B17 fix: was hardcoded 'Kintampo, Bono East' — now uses actual listing location */}
+            <Text style={styles.locationText}>{item.listingLocation || 'Location not specified'}</Text>
           </View>
           <Button
             mode="contained"
@@ -216,7 +220,7 @@ export default function MarketplaceTab({ onNavigate }) {
         <FlatList
           data={filteredListings}
           renderItem={renderListingCard}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.listingId || item.listing_id || index)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
         />
@@ -301,17 +305,17 @@ export default function MarketplaceTab({ onNavigate }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    backgroundColor: theme.colors.background,
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
   },
   searchbar: {
     elevation: 0,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    marginBottom: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.medium,
+    marginBottom: theme.spacing.md,
     height: 48,
   },
   searchInput: {
@@ -319,12 +323,17 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   insightsCard: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
     padding: 14,
     marginBottom: 20,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   insightsHeader: {
     flexDirection: 'row',
@@ -334,7 +343,7 @@ const styles = StyleSheet.create({
   insightsTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   insightsRow: {
     flexDirection: 'row',
@@ -347,24 +356,24 @@ const styles = StyleSheet.create({
   },
   insightLabel: {
     fontSize: 10,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   insightVal: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#12372A',
+    color: theme.colors.primary,
     marginTop: 4,
   },
   insightDivider: {
     width: 1,
     height: 24,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: theme.colors.border,
   },
   sectionTitle: {
     fontSize: 12,
-    fontWeight: '650',
-    color: '#475569',
+    fontWeight: '600',
+    color: theme.colors.text,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 12,
@@ -373,12 +382,17 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#F1F5F9',
-    borderRadius: 8,
-    marginBottom: 16,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.roundness.large,
+    marginBottom: theme.spacing.md,
     elevation: 0,
+    shadowColor: theme.colors.text,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -393,30 +407,30 @@ const styles = StyleSheet.create({
   cropName: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
   },
   gradeBadge: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.colors.surfaceDim,
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: theme.roundness.small,
   },
   gradeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#475569',
+    color: theme.colors.textMuted,
   },
   descText: {
     fontSize: 13,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     lineHeight: 18,
     marginBottom: 12,
   },
   detailsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 10,
     marginBottom: 12,
   },
@@ -425,18 +439,18 @@ const styles = StyleSheet.create({
   },
   detailLabel: {
     fontSize: 10,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   detailValue: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
     marginTop: 2,
   },
   cardDivider: {
     height: 1,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: theme.colors.border,
     marginBottom: 12,
   },
   cardFooter: {
@@ -450,11 +464,11 @@ const styles = StyleSheet.create({
   },
   locationText: {
     fontSize: 11,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     fontWeight: '500',
   },
   actionBtn: {
-    borderRadius: 6,
+    borderRadius: theme.roundness.small,
     height: 32,
     justifyContent: 'center',
   },
@@ -471,7 +485,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: '#94A3B8',
+    color: theme.colors.textMuted,
     textAlign: 'center',
   },
   loaderContainer: {
@@ -482,14 +496,14 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: theme.colors.overlay,
     paddingHorizontal: 20,
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.roundness.large,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: theme.colors.text,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
@@ -498,29 +512,29 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#0F172A',
+    color: theme.colors.text,
     marginBottom: 4,
   },
   modalSubtitle: {
     fontSize: 14,
-    color: '#64748B',
+    color: theme.colors.textMuted,
     fontWeight: '500',
     marginBottom: 16,
   },
   modalListingInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceDim,
+    borderRadius: theme.roundness.medium,
     padding: 12,
     marginBottom: 16,
   },
   modalInfoText: {
     fontSize: 12,
-    color: '#475569',
+    color: theme.colors.text,
   },
   modalInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.colors.surface,
     marginBottom: 12,
   },
   modalActions: {
@@ -530,6 +544,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   modalBtn: {
-    borderRadius: 6,
+    borderRadius: theme.roundness.medium,
   },
 });

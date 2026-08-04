@@ -25,8 +25,14 @@ export default function RatingsTab() {
     setIsLoading(true);
     try {
       const data = await api.fetchRatings();
-      setReviews(data.reviews);
-      setAverageRating(data.averageRating);
+      const reviewsList = Array.isArray(data) ? data : (data?.reviews || []);
+      setReviews(reviewsList);
+      if (data && !Array.isArray(data) && data.averageRating) {
+        setAverageRating(String(data.averageRating));
+      } else if (reviewsList.length > 0) {
+        const avg = reviewsList.reduce((acc, r) => acc + (Number(r.score) || 0), 0) / reviewsList.length;
+        setAverageRating(avg.toFixed(1));
+      }
     } catch (error) {
       console.error('Error fetching reviews:', error);
       Alert.alert('Error', 'Failed to retrieve buyer feedback.');
@@ -149,7 +155,7 @@ export default function RatingsTab() {
             {renderStars(parseFloat(averageRating))}
           </View>
           <Text style={styles.reviewCountText}>
-            Based on {reviews.length} buyer reviews
+            Based on {(reviews || []).length} buyer reviews
           </Text>
         </View>
       </View>
@@ -158,7 +164,7 @@ export default function RatingsTab() {
       <Text style={styles.sectionTitle}>Buyer Feedback</Text>
 
       {/* Reviews List */}
-      {isLoading && reviews.length === 0 ? (
+      {isLoading && (reviews || []).length === 0 ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#12372A" />
         </View>
@@ -166,7 +172,7 @@ export default function RatingsTab() {
         <FlatList
           data={reviews}
           renderItem={renderReviewItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => String(item.id || item.ratingId || item.rating_id || index)}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={

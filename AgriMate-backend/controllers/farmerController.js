@@ -192,8 +192,8 @@ exports.getOffers = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT o.order_id, o.price, o.price as offered_price, o.quantity, o.quantity as offered_quantity, 
-              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
+      `SELECT o.order_id, o.price, o.quantity, 
+              o.status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
               l.listing_id, l.crop_name, l.grade, l.location as listing_location,
               u.username as buyer_name, u.phone_number as buyer_phone
        FROM orders o
@@ -204,6 +204,7 @@ exports.getOffers = async (req, res) => {
       [userId]
     );
     res.json(result.rows);
+
   } catch (err) {
     console.error("❌ Error fetching offers:", err.message);
     res.status(500).json({ error: "Internal server error" });
@@ -272,7 +273,7 @@ exports.acceptOffer = async (req, res) => {
 
     const updatedOffer = await client.query(
       `SELECT o.order_id, o.price, o.price as offered_price, o.quantity, o.quantity as offered_quantity, 
-              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at,
+              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
               l.listing_id, l.crop_name, l.grade, l.location as listing_location,
               u.username as buyer_name, u.phone_number as buyer_phone
        FROM orders o
@@ -332,7 +333,7 @@ exports.rejectOffer = async (req, res) => {
 
     const updatedOffer = await client.query(
       `SELECT o.order_id, o.price, o.price as offered_price, o.quantity, o.quantity as offered_quantity, 
-              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at,
+              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
               l.listing_id, l.crop_name, l.grade, l.location as listing_location,
               u.username as buyer_name, u.phone_number as buyer_phone
        FROM orders o
@@ -444,9 +445,22 @@ exports.fulfillOrder = async (req, res) => {
     await logHistory(client, userId, "order_ready_for_pickup", orderId, `Marked order ID ${orderId} as ready for pickup. Created logistics job.`);
 
     await client.query("COMMIT");
+
+    // B14 fix: re-query full updated order row so frontend can spread it onto state correctly
+    // Previously returned { message, escrow_status } which caused spread mismatch on OffersTab
+    const updatedOrderResult = await pool.query(
+      `SELECT o.order_id, o.price, o.quantity, o.status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
+              l.listing_id, l.crop_name, l.grade, l.location as listing_location,
+              u.username as buyer_name, u.phone_number as buyer_phone
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON o.buyer_id = u.user_id
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
     res.json({ 
-      message: "Order marked ready for pickup successfully. Logistics job is now available.", 
-      escrow_status: escrowReleased ? 'half_released' : order.escrow_status 
+      message: "Order marked ready for pickup successfully. Logistics job is now available.",
+      order: updatedOrderResult.rows[0]
     });
   } catch (err) {
     await client.query("ROLLBACK");
