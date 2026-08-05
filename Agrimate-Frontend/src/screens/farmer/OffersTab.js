@@ -49,42 +49,15 @@ export default function OffersTab() {
     setIsLoading(true);
     try {
       const data = await api.fetchOffers();
-      if (Array.isArray(data) && data.length > 0) {
-        if (cachedFarmerOffers) {
-          const merged = data
-            .map(serverItem => {
-              const cachedItem = cachedFarmerOffers.find(c => String(c.id) === String(serverItem.id));
-              if (cachedItem && cachedItem.status !== 'pending') {
-                return { ...serverItem, ...cachedItem };
-              }
-              return serverItem;
-            })
-            .filter(item => {
-              const cachedItem = cachedFarmerOffers.find(c => String(c.id) === String(item.id));
-              return !cachedItem || cachedItem.status !== 'rejected';
-            });
-
-          // Also include any seed items created locally in session that aren't on server
-          for (const cachedItem of cachedFarmerOffers) {
-            if (!merged.some(m => String(m.id) === String(cachedItem.id)) && cachedItem.status !== 'rejected') {
-              merged.push(cachedItem);
-            }
-          }
-          setOffers(merged);
-        } else {
-          setOffers(data);
-        }
-      } else {
-        if (!cachedFarmerOffers) {
-          cachedFarmerOffers = [];
-        }
+      if (Array.isArray(data)) {
+        setOffers(data);
+      } else if (cachedFarmerOffers) {
         setOffers(cachedFarmerOffers);
       }
     } catch (error) {
-      if (!cachedFarmerOffers) {
-        cachedFarmerOffers = [];
+      if (cachedFarmerOffers) {
+        setOffers(cachedFarmerOffers);
       }
-      setOffers(cachedFarmerOffers);
     } finally {
       setIsLoading(false);
     }
@@ -138,18 +111,15 @@ export default function OffersTab() {
   const handleAcceptOffer = async (id) => {
     setIsLoading(true);
     try {
-      await api.acceptOffer(id);
-      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'accepted', escrowStatus: 'funded' } : o));
+      const updated = await api.acceptOffer(id);
+      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, ...(updated || {}), status: 'accepted', escrowStatus: 'unfunded' } : o));
       Alert.alert(
         'Offer Accepted',
-        'Buyer funds are now locked in escrow. Please prepare the crops for fulfillment.'
+        'Offer accepted! Buyer can now fund escrow and prepare logistics.'
       );
     } catch (error) {
-      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'accepted', escrowStatus: 'funded' } : o));
-      Alert.alert(
-        'Offer Accepted',
-        'Bid accepted! Buyer funds are now locked in escrow.'
-      );
+      console.error('Accept offer error:', error);
+      Alert.alert('Error Accepting Offer', error.message || 'Failed to accept offer. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -160,10 +130,10 @@ export default function OffersTab() {
     try {
       await api.rejectOffer(id);
       setOffers(prev => prev.filter(o => String(o.id) !== String(id)));
-      Alert.alert('Offer Rejected', 'Bid was successfully declined.');
+      Alert.alert('Offer Declined', 'Bid was successfully declined.');
     } catch (error) {
-      setOffers(prev => prev.filter(o => String(o.id) !== String(id)));
-      Alert.alert('Offer Rejected', 'Bid was successfully declined.');
+      console.error('Reject offer error:', error);
+      Alert.alert('Error Declining Offer', error.message || 'Failed to decline offer. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -172,18 +142,15 @@ export default function OffersTab() {
   const handleFulfillOrder = async (id) => {
     setIsLoading(true);
     try {
-      await api.fulfillOrder(id);
-      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'ready_for_pickup', deliveryStatus: 'claimed' } : o));
+      const updated = await api.fulfillOrder(id);
+      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, ...(updated || {}), status: 'ready_for_pickup', deliveryStatus: 'pending' } : o));
       Alert.alert(
         'Order Fulfilled',
-        'Crop is marked as ready for pickup. Escrow funds have been settled into your wallet.'
+        'Crop is marked as ready for pickup. Escrow funds have been updated.'
       );
     } catch (error) {
-      setOffers(prev => prev.map(o => String(o.id) === String(id) ? { ...o, status: 'ready_for_pickup', deliveryStatus: 'claimed' } : o));
-      Alert.alert(
-        'Order Fulfilled',
-        'Crop is marked as ready for pickup. Escrow funds have been settled into your wallet.'
-      );
+      console.error('Fulfill order error:', error);
+      Alert.alert('Error Fulfilling Order', error.message || 'Failed to fulfill order. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -232,7 +199,7 @@ export default function OffersTab() {
           <View style={styles.actionRow}>
             <TouchableOpacity 
               style={[styles.actionBtn, styles.acceptBtn]} 
-              onPress={() => handleAcceptOffer(item.id)}
+              onPress={() => handleAcceptOffer(item.orderId || item.id)}
             >
               <Check size={14} color="#FFFFFF" />
               <Text style={styles.acceptBtnText}>Accept Bid</Text>
@@ -240,7 +207,7 @@ export default function OffersTab() {
             
             <TouchableOpacity 
               style={[styles.actionBtn, styles.rejectBtn]} 
-              onPress={() => handleRejectOffer(item.id)}
+              onPress={() => handleRejectOffer(item.orderId || item.id)}
             >
               <X size={14} color="#64748B" />
               <Text style={styles.rejectBtnText}>Decline</Text>
@@ -289,7 +256,7 @@ export default function OffersTab() {
                 {isEscrowFunded ? (
                   <TouchableOpacity 
                     style={[styles.fulfillBtn, { backgroundColor: '#059669' }]} 
-                    onPress={() => handleFulfillOrder(item.id)}
+                    onPress={() => handleFulfillOrder(item.orderId || item.id)}
                   >
                     <Check size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
                     <Text style={styles.fulfillBtnText}>Mark Crop Ready</Text>

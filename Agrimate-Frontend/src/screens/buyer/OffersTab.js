@@ -40,41 +40,15 @@ export default function OffersTab() {
     setIsLoading(true);
     try {
       const data = await api.fetchBuyerOffers();
-      if (Array.isArray(data) && data.length > 0) {
-        if (cachedBuyerOffers) {
-          const merged = data
-            .map(serverItem => {
-              const cachedItem = cachedBuyerOffers.find(c => String(c.id) === String(serverItem.id));
-              if (cachedItem) {
-                return { ...serverItem, ...cachedItem };
-              }
-              return serverItem;
-            })
-            .filter(item => {
-              const cachedItem = cachedBuyerOffers.find(c => String(c.id) === String(item.id));
-              return !cachedItem || cachedItem.status !== 'cancelled';
-            });
-
-          for (const cachedItem of cachedBuyerOffers) {
-            if (!merged.some(m => String(m.id) === String(cachedItem.id)) && cachedItem.status !== 'cancelled') {
-              merged.push(cachedItem);
-            }
-          }
-          setOffers(merged);
-        } else {
-          setOffers(data);
-        }
-      } else {
-        if (!cachedBuyerOffers) {
-          cachedBuyerOffers = [];
-        }
+      if (Array.isArray(data)) {
+        setOffers(data);
+      } else if (cachedBuyerOffers) {
         setOffers(cachedBuyerOffers);
       }
     } catch (error) {
-      if (!cachedBuyerOffers) {
-        cachedBuyerOffers = [];
+      if (cachedBuyerOffers) {
+        setOffers(cachedBuyerOffers);
       }
-      setOffers(cachedBuyerOffers);
     } finally {
       setIsLoading(false);
     }
@@ -103,17 +77,16 @@ export default function OffersTab() {
 
     setIsSubmitLoading(true);
     try {
-      await api.updateBuyerOffer(selectedOffer.id, {
+      const updated = await api.updateBuyerOffer(selectedOffer.id, {
         quantity: parseFloat(editQuantity),
         price: parseFloat(editPrice),
       });
-      setOffers(prev => prev.map(o => String(o.id) === String(selectedOffer.id) ? { ...o, quantity: parseFloat(editQuantity), price: parseFloat(editPrice) } : o));
+      setOffers(prev => prev.map(o => String(o.id) === String(selectedOffer.id) ? { ...o, ...(updated || {}), quantity: parseFloat(editQuantity), price: parseFloat(editPrice) } : o));
       Alert.alert('Success', 'Offer updated successfully.');
       setEditModalVisible(false);
     } catch (error) {
-      setOffers(prev => prev.map(o => String(o.id) === String(selectedOffer.id) ? { ...o, quantity: parseFloat(editQuantity), price: parseFloat(editPrice) } : o));
-      Alert.alert('Success', 'Offer updated successfully.');
-      setEditModalVisible(false);
+      console.error('Update offer error:', error);
+      Alert.alert('Error Updating Offer', error.message || 'Failed to update offer. Please try again.');
     } finally {
       setIsSubmitLoading(false);
     }
@@ -134,8 +107,8 @@ export default function OffersTab() {
               setOffers(prev => prev.filter(o => String(o.id) !== String(offerId)));
               Alert.alert('Cancelled', 'Offer cancelled successfully.');
             } catch (error) {
-              setOffers(prev => prev.filter(o => String(o.id) !== String(offerId)));
-              Alert.alert('Cancelled', 'Offer cancelled successfully.');
+              console.error('Cancel offer error:', error);
+              Alert.alert('Error Cancelling Offer', error.message || 'Failed to cancel offer. Please try again.');
             }
           },
         },

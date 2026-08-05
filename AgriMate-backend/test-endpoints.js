@@ -127,7 +127,7 @@ async function runTests() {
       },
       body: JSON.stringify({
         crop_name: 'Cassava',
-        quantity: 50,
+        quantity: 100,
         price: 20.00,
         grade: 'A',
         location: 'Kumasi',
@@ -174,8 +174,11 @@ async function runTests() {
     
     // Verify DB states after Acceptance
     let orderCheck = await pool.query('SELECT status, escrow_status, delivery_status FROM orders WHERE order_id = $1', [orderId1]);
+    let listingCheck = await pool.query('SELECT quantity, status FROM listings WHERE listing_id = $1', [listingId1]);
     console.log(`✅ Accept verification: order status = "${orderCheck.rows[0].status}" | escrow = "${orderCheck.rows[0].escrow_status}" | delivery = "${orderCheck.rows[0].delivery_status}"`);
+    console.log(`✅ Inventory Remainder Verification: listing quantity = ${listingCheck.rows[0].quantity} (Expected: 50) | listing status = "${listingCheck.rows[0].status}" (Expected: "open")`);
     if (orderCheck.rows[0].escrow_status !== 'unfunded') throw new Error('Escrow status should be unfunded!');
+    if (parseInt(listingCheck.rows[0].quantity) !== 50 || listingCheck.rows[0].status !== 'open') throw new Error('Inventory deduction verification failed!');
 
     // 4. Buyer funds escrow
     const fundRes = await fetch(`${BASE_URL}/api/buyer/orders/${orderId1}/fund`, {

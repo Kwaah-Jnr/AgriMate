@@ -79,9 +79,10 @@ ALTER TABLE listings ADD COLUMN IF NOT EXISTS location VARCHAR(255);
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'open';
 
--- 8. Add Missing Columns to Ratings Table
+-- 8. Add Missing Columns to Ratings & Users Table
 ALTER TABLE ratings ADD COLUMN IF NOT EXISTS reply TEXT;
 ALTER TABLE ratings ADD COLUMN IF NOT EXISTS replied_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS vehicle_number VARCHAR(50);
 
 -- 9. Create Wallet Transactions Table
 CREATE TABLE IF NOT EXISTS wallet_transactions (
@@ -93,3 +94,16 @@ CREATE TABLE IF NOT EXISTS wallet_transactions (
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 10. Create Payments Table
+CREATE TABLE IF NOT EXISTS payments (
+    payment_id SERIAL PRIMARY KEY,
+    order_id INT REFERENCES orders(order_id) ON DELETE CASCADE,
+    buyer_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+    amount NUMERIC(12, 2) NOT NULL,
+    type VARCHAR(20) CHECK (type IN ('escrow_lock', 'release')),
+    status VARCHAR(20) DEFAULT 'pending',
+    description TEXT,
+    confirmed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+

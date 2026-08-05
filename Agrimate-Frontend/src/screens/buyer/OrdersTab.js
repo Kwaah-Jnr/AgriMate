@@ -10,6 +10,7 @@ import {
   Modal,
   Platform,
   Linking,
+  TouchableOpacity,
 } from 'react-native';
 import { Card, Button, HelperText, TextInput } from 'react-native-paper';
 import { api, registerCacheReset } from '../../services/api';
@@ -53,37 +54,23 @@ export default function OrdersTab() {
     setIsLoading(true);
     try {
       const data = await api.fetchBuyerOrders();
-      if (Array.isArray(data) && data.length > 0) {
-        let merged = data;
-        if (cachedBuyerOrders) {
-          merged = data.map(serverItem => {
-            const cachedItem = cachedBuyerOrders.find(c => String(c.id) === String(serverItem.id));
-            if (cachedItem) {
-              return { ...serverItem, ...cachedItem };
-            }
-            return serverItem;
-          });
-
-          for (const cachedItem of cachedBuyerOrders) {
-            if (!merged.some(m => String(m.id) === String(cachedItem.id))) {
-              merged.push(cachedItem);
-            }
-          }
-        }
-        const sortedData = merged.sort((a, b) => {
+      if (Array.isArray(data)) {
+        // Active contracts are accepted/funded/in-transit/completed orders (not pending or rejected offers)
+        const activeContracts = data.filter(
+          o => o.status !== 'pending' && o.status !== 'rejected' && o.status !== 'cancelled'
+        );
+        const sortedData = activeContracts.sort((a, b) => {
           const aNeedsFunding = a.status === 'accepted' && a.escrowStatus === 'unfunded';
           const bNeedsFunding = b.status === 'accepted' && b.escrowStatus === 'unfunded';
 
           if (aNeedsFunding && !bNeedsFunding) return -1;
           if (!aNeedsFunding && bNeedsFunding) return 1;
 
-          return new Date(b.createdAt) - new Date(a.createdAt);
+          return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
         });
         setOrders(sortedData);
-      } else {
-        if (cachedBuyerOrders) {
-          setOrders(cachedBuyerOrders);
-        }
+      } else if (cachedBuyerOrders) {
+        setOrders(cachedBuyerOrders);
       }
     } catch (error) {
       if (cachedBuyerOrders) {
@@ -128,7 +115,6 @@ export default function OrdersTab() {
       };
 
       pollLocations();
-      // Poll every 10s for demo tracking
       intervalId = setInterval(pollLocations, 10000);
     }
 
@@ -136,7 +122,6 @@ export default function OrdersTab() {
       if (intervalId) clearInterval(intervalId);
     };
   }, [orders]);
-
 
   const handleSimulateSelfPickupScan = async () => {
     if (!selectedOrderForQr) return;

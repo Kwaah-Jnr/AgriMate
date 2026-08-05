@@ -106,6 +106,11 @@ exports.placeOffer = async (req, res) => {
       return res.status(400).json({ error: `Cannot place offer on a listing with status '${listingCheck.rows[0].status}'.` });
     }
 
+    if (parseInt(quantity) > parseInt(listingCheck.rows[0].quantity)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Requested quantity (${quantity}) exceeds available listing stock (${listingCheck.rows[0].quantity}).` });
+    }
+
     // Insert order/offer
     const result = await client.query(
       `INSERT INTO orders (buyer_id, listings_id, price, quantity, status, pickup_by, note) 
@@ -958,6 +963,17 @@ exports.resolveDispute = async (req, res) => {
         "UPDATE jobs SET status = 'cancelled', updated_at = NOW() WHERE order_id = $1 AND status != 'delivered'",
         [orderId]
       );
+
+      // Restore listing inventory on dispute refund/cancellation
+      const listingCheck = await client.query("SELECT * FROM listings WHERE listing_id = $1 FOR UPDATE", [order.listings_id]);
+      if (listingCheck.rows.length > 0) {
+        const currentQty = parseInt(listingCheck.rows[0].quantity) || 0;
+        const restoredQty = currentQty + (parseInt(order.quantity) || 0);
+        await client.query(
+          "UPDATE listings SET quantity = $1, status = 'open' WHERE listing_id = $2",
+          [restoredQty, order.listings_id]
+        );
+      }
 
       await logHistory(client, buyerId, "dispute_refunded", dispute.dispute_id, `Resolved dispute on order ID ${orderId} with a refund of ${refundAmount} GHS to buyer.`);
 

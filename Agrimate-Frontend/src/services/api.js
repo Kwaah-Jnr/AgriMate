@@ -87,12 +87,24 @@ const toCamel = (obj) => {
       if (floatKeys.includes(nextKey) && val !== null && val !== undefined) {
         val = parseFloat(val);
       }
-      // Map primary keys to 'id' to support frontend component attributes
-      if (nextKey === 'listingId' || nextKey === 'orderId' || nextKey === 'jobId' || nextKey === 'ratingId' || nextKey === 'walletId' || nextKey === 'disputeId') {
-        next.id = toCamel(val);
-      }
       next[nextKey] = toCamel(val);
     }
+
+    // Set 'id' attribute cleanly based on primary entity type (prevents joined listingId from overwriting orderId)
+    if ('orderId' in next) {
+      next.id = next.orderId;
+    } else if ('jobId' in next) {
+      next.id = next.jobId;
+    } else if ('disputeId' in next) {
+      next.id = next.disputeId;
+    } else if ('ratingId' in next) {
+      next.id = next.ratingId;
+    } else if ('walletId' in next) {
+      next.id = next.walletId;
+    } else if ('listingId' in next) {
+      next.id = next.listingId;
+    }
+
     return next;
   }
   return obj;
@@ -631,6 +643,10 @@ export const api = {
     if (!token) {
       clearAllCaches();
     }
+  },
+
+  clearAllCaches: () => {
+    clearAllCaches();
   },
 };
 

@@ -166,6 +166,7 @@ export const AuthProvider = ({ children }) => {
   // Helper to persist session
   const saveSession = async (sessionToken) => {
     try {
+      api.clearAllCaches();
       await AsyncStorage.setItem(TOKEN_KEY, sessionToken);
       const claims = decodeJWT(sessionToken);
       setToken(sessionToken);

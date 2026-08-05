@@ -250,8 +250,28 @@ exports.acceptOffer = async (req, res) => {
       [orderId]
     );
 
-    // 2. Mark listing as accepted
-    await client.query("UPDATE listings SET status = 'accepted' WHERE listing_id = $1", [offer.listings_id]);
+    // 2. Fetch current listing & deduct quantity
+    const listingCheck = await client.query("SELECT * FROM listings WHERE listing_id = $1 FOR UPDATE", [offer.listings_id]);
+    if (listingCheck.rows.length > 0) {
+      const listing = listingCheck.rows[0];
+      const currentQty = parseInt(listing.quantity) || 0;
+      const orderQty = parseInt(offer.quantity) || 0;
+      const remainingQty = Math.max(0, currentQty - orderQty);
+
+      if (remainingQty > 0) {
+        // Keep listing open with remaining quantity available for sale
+        await client.query(
+          "UPDATE listings SET quantity = $1, status = 'open' WHERE listing_id = $2",
+          [remainingQty, offer.listings_id]
+        );
+      } else {
+        // All quantity sold out
+        await client.query(
+          "UPDATE listings SET quantity = 0, status = 'accepted' WHERE listing_id = $1",
+          [offer.listings_id]
+        );
+      }
+    }
 
     // 3. Update wallet escrow
     const orderTotal = parseFloat(offer.price) * parseInt(offer.quantity);

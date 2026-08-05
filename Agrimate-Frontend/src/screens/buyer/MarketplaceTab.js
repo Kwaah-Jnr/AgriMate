@@ -144,11 +144,8 @@ export default function MarketplaceTab({ onNavigate }) {
         onNavigate('offers');
       }
     } catch (error) {
-      Alert.alert('Success', 'Your offer has been submitted successfully to the farmer.');
-      setOfferModalVisible(false);
-      if (onNavigate) {
-        onNavigate('offers');
-      }
+      console.error('Place offer error:', error);
+      Alert.alert('Error Submitting Offer', error.message || 'Failed to submit offer to farmer. Please try again.');
     } finally {
       setIsSubmitLoading(false);
     }
