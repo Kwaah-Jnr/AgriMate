@@ -90,17 +90,18 @@ const toCamel = (obj) => {
       next[nextKey] = toCamel(val);
     }
 
-    // Set 'id' attribute cleanly based on primary entity type (prevents joined listingId from overwriting orderId)
-    if ('orderId' in next) {
-      next.id = next.orderId;
+    // Set 'id' attribute cleanly based on primary entity type hierarchy:
+    // Dispute/Job/Rating/Wallet > Order > Listing
+    if ('disputeId' in next) {
+      next.id = next.disputeId;
     } else if ('jobId' in next) {
       next.id = next.jobId;
-    } else if ('disputeId' in next) {
-      next.id = next.disputeId;
     } else if ('ratingId' in next) {
       next.id = next.ratingId;
     } else if ('walletId' in next) {
       next.id = next.walletId;
+    } else if ('orderId' in next) {
+      next.id = next.orderId;
     } else if ('listingId' in next) {
       next.id = next.listingId;
     }

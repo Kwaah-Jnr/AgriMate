@@ -1172,11 +1172,17 @@ exports.resolveDisputeById = async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // Fetch dispute details by dispute_id
-    const disputeQuery = await client.query(
+    // Fetch dispute details by dispute_id (or order_id fallback)
+    let disputeQuery = await client.query(
       "SELECT * FROM disputes WHERE dispute_id = $1 AND status = 'open'",
       [disputeId]
     );
+    if (disputeQuery.rows.length === 0) {
+      disputeQuery = await client.query(
+        "SELECT * FROM disputes WHERE order_id = $1 AND status = 'open'",
+        [disputeId]
+      );
+    }
     if (disputeQuery.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ error: "Open dispute not found." });

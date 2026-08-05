@@ -169,7 +169,7 @@ export default function DisputesTab() {
               textColor="#16A34A"
               style={[styles.actionBtn, { borderColor: '#16A34A' }]}
               labelStyle={styles.actionBtnLabel}
-              onPress={() => handleResolveDispute(item.id, 'cancel')}
+              onPress={() => handleResolveDispute(item.disputeId || item.id, 'cancel')}
             >
               Cancel Dispute
             </Button>
@@ -179,7 +179,7 @@ export default function DisputesTab() {
               textColor="#FFFFFF"
               style={[styles.actionBtn, { marginLeft: 8 }]}
               labelStyle={styles.actionBtnLabel}
-              onPress={() => handleResolveDispute(item.id, 'refund')}
+              onPress={() => handleResolveDispute(item.disputeId || item.id, 'refund')}
             >
               Request Refund
             </Button>
