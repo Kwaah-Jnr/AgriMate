@@ -3,15 +3,21 @@ const router = express.Router();
 const transporterController = require("../controllers/transporterController");
 const { authenticateUser, requireRole } = require("../middleware/authMiddleware");
 
-// All routes here require user authentication and the 'transporter' role
+// All routes here require user authentication
 router.use(authenticateUser);
+
+/* ==========================================================================
+   Shipping Quote — Available to ALL authenticated roles (buyers, farmers, transporters)
+   ========================================================================== */
+router.post("/jobs/quote", transporterController.calculateJobQuote);
+
+// All routes below require the 'transporter' role
 router.use(requireRole("transporter"));
 
 /* ==========================================================================
    1. Job Discovery & Assignment Routes
    ========================================================================== */
 router.get("/jobs/available", transporterController.getAvailableJobs);
-router.post("/jobs/quote", transporterController.calculateJobQuote);
 router.post("/jobs/:id/claim", transporterController.claimJob);
 router.get("/jobs/active", transporterController.getActiveJobs);
 

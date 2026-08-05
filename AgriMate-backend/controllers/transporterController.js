@@ -24,23 +24,52 @@ async function logHistory(client, userId, actionType, referenceId, description) 
 /**
  * Dynamic Road Distance & Shipping Rate Estimator
  */
-function calculateRoadDistanceAndPayout(originAddress, destinationAddress, estimatedKm = 25) {
-  const distanceKm = Math.max(parseFloat(estimatedKm) || 15.0, 5.0);
+function calculateHaversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radius of Earth in km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  // 1.35x factor for Ghana road network winding
+  return Math.max(R * c * 1.35, 5.0);
+}
+
+function calculateRoadDistanceAndPayout(originAddress, destinationAddress, estimatedKm, coords) {
+  let distanceKm = parseFloat(estimatedKm) || 25.0;
+
+  if (coords && coords.originLat && coords.originLng && coords.destLat && coords.destLng) {
+    distanceKm = calculateHaversineDistanceKm(
+      parseFloat(coords.originLat),
+      parseFloat(coords.originLng),
+      parseFloat(coords.destLat),
+      parseFloat(coords.destLng)
+    );
+  }
+
   const baseRate = 25.0; // GH₵ base handling fee
   const perKmRate = 4.5; // GH₵ per km driving rate
   const calculatedPayout = baseRate + (distanceKm * perKmRate);
+  const estimatedMins = Math.round((distanceKm / 45) * 60); // Assuming average 45km/h speed
 
   return {
     distanceKm: parseFloat(distanceKm.toFixed(1)),
     estimatedPayout: parseFloat(calculatedPayout.toFixed(2)),
+    estimatedMins,
     ratePerKm: perKmRate,
+    baseFee: baseRate,
   };
 }
 
 exports.calculateJobQuote = async (req, res) => {
-  const { pickup_location, dropoff_location, distance_km } = req.body;
+  const { pickup_location, dropoff_location, distance_km, origin_lat, origin_lng, dest_lat, dest_lng } = req.body;
   try {
-    const quote = calculateRoadDistanceAndPayout(pickup_location, dropoff_location, distance_km);
+    const coords = (origin_lat && origin_lng && dest_lat && dest_lng)
+      ? { originLat: origin_lat, originLng: origin_lng, destLat: dest_lat, destLng: dest_lng }
+      : null;
+    const quote = calculateRoadDistanceAndPayout(pickup_location, dropoff_location, distance_km, coords);
     res.json(quote);
   } catch (err) {
     res.status(500).json({ error: "Failed to calculate distance quote" });

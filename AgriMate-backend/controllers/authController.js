@@ -82,9 +82,11 @@ const verifyGoogleToken = async (req, res) => {
   }
 
   try {
-    res.json({
-      message: "Google sign-in processed",
-      token: jwt.sign({ username: "Google User", fullName: "Google User", role: "farmer" }, JWT_SECRET, { expiresIn: "24h" })
+    // NOTE: Google OAuth is a stub — user_id is null until full Google Identity integration is implemented.
+    // Without a real user_id, protected routes will not be able to query the database correctly.
+    // For now, reject Google sign-in with a clear message so users use email login.
+    return res.status(501).json({
+      error: "Google Sign-In is not yet fully integrated. Please use email/password login to access your account."
     });
   } catch (err) {
     res.status(500).json({ error: "Google verification failed: " + err.message });
@@ -102,10 +104,11 @@ const verifyAppleToken = async (req, res) => {
   }
 
   try {
-    const displayName = fullName || "Apple User";
-    res.json({
-      message: "Apple sign-in processed",
-      token: jwt.sign({ username: displayName, fullName: displayName, role: "farmer" }, JWT_SECRET, { expiresIn: "24h" })
+    // NOTE: Apple OAuth is a stub — user_id is null until full Apple Identity integration is implemented.
+    // Without a real user_id, protected routes will not be able to query the database correctly.
+    // For now, reject Apple sign-in with a clear message so users use email login.
+    return res.status(501).json({
+      error: "Apple Sign-In is not yet fully integrated. Please use email/password login to access your account."
     });
   } catch (err) {
     res.status(500).json({ error: "Apple verification failed: " + err.message });

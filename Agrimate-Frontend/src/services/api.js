@@ -582,6 +582,15 @@ export const api = {
     return handleResponse(response);
   },
 
+  calculateJobQuote: async (quoteParams) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/jobs/quote`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(toSnake(quoteParams)),
+    });
+    return handleResponse(response);
+  },
+
   // B3 fix: backend expects snake_case keys { qr_code, vehicle_number }
   selfPickupBuyerOrder: async (id, pickupToken, vehicleNumber) => {
     const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders/${id}/self-pickup`, {

@@ -12,12 +12,60 @@ import {
 } from 'react-native';
 import { Searchbar, Card, Button, TextInput, HelperText } from 'react-native-paper';
 import { api } from '../../services/api';
-import { Leaf, MapPin, Tag, BarChart2 } from 'lucide-react-native';
+import { Leaf, MapPin, Tag, BarChart2, Map as MapIcon, List as ListIcon } from 'lucide-react-native';
 import { theme } from '../../theme/theme';
+
+let MapView, Marker, Callout;
+try {
+  const Maps = require('react-native-maps');
+  MapView = Maps.default;
+  Marker = Maps.Marker;
+  Callout = Maps.Callout;
+} catch (e) {
+  MapView = null;
+  Marker = null;
+  Callout = null;
+}
+
+const REGION_COORDS = {
+  'ashanti': { latitude: 6.6885, longitude: -1.6244 },
+  'kumasi': { latitude: 6.6885, longitude: -1.6244 },
+  'bono east': { latitude: 7.5876, longitude: -1.9331 },
+  'techiman': { latitude: 7.5876, longitude: -1.9331 },
+  'kintampo': { latitude: 8.0563, longitude: -1.7306 },
+  'greater accra': { latitude: 5.6037, longitude: -0.1870 },
+  'accra': { latitude: 5.6037, longitude: -0.1870 },
+  'northern': { latitude: 9.4008, longitude: -0.8393 },
+  'tamale': { latitude: 9.4008, longitude: -0.8393 },
+  'bono': { latitude: 7.3349, longitude: -2.3123 },
+  'sunyani': { latitude: 7.3349, longitude: -2.3123 },
+  'eastern': { latitude: 6.1000, longitude: -0.2600 },
+  'central': { latitude: 5.1053, longitude: -1.2466 },
+  'western': { latitude: 4.8986, longitude: -1.7587 },
+};
+
+const getListingCoords = (item, index) => {
+  if (item.latitude && item.longitude) {
+    return { latitude: parseFloat(item.latitude), longitude: parseFloat(item.longitude) };
+  }
+  const locStr = (item.listingLocation || item.farmerRegion || item.region || '').toLowerCase();
+  for (const key in REGION_COORDS) {
+    if (locStr.includes(key)) {
+      const offset = (index % 5) * 0.008 - 0.016;
+      return {
+        latitude: REGION_COORDS[key].latitude + offset,
+        longitude: REGION_COORDS[key].longitude + offset,
+      };
+    }
+  }
+  const defaultOffset = (index % 5) * 0.01 - 0.02;
+  return { latitude: 7.5876 + defaultOffset, longitude: -1.9331 + defaultOffset };
+};
 
 export default function MarketplaceTab({ onNavigate }) {
   const [listings, setListings] = useState([]);
   const [filteredListings, setFilteredListings] = useState([]);
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'map'
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
@@ -209,12 +257,67 @@ export default function MarketplaceTab({ onNavigate }) {
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>Available Crop Listings</Text>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Available Crop Listings</Text>
+        <View style={styles.toggleGroup}>
+          <TouchableOpacity
+            style={[styles.toggleBtn, viewMode === 'list' && styles.toggleBtnActive]}
+            onPress={() => setViewMode('list')}
+          >
+            <ListIcon size={14} color={viewMode === 'list' ? '#FFFFFF' : '#12372A'} />
+            <Text style={[styles.toggleText, viewMode === 'list' && styles.toggleTextActive]}>List</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.toggleBtn, viewMode === 'map' && styles.toggleBtnActive]}
+            onPress={() => setViewMode('map')}
+          >
+            <MapIcon size={14} color={viewMode === 'map' ? '#FFFFFF' : '#12372A'} />
+            <Text style={[styles.toggleText, viewMode === 'map' && styles.toggleTextActive]}>Map</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {filteredListings.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Leaf size={48} color="#CBD5E1" />
           <Text style={styles.emptyText}>No listings found in the marketplace.</Text>
+        </View>
+      ) : viewMode === 'map' && MapView ? (
+        <View style={styles.mapContainer}>
+          <MapView
+            style={styles.mapView}
+            initialRegion={{
+              latitude: 7.9465,
+              longitude: -1.0232,
+              latitudeDelta: 3.5,
+              longitudeDelta: 3.5,
+            }}
+          >
+            {filteredListings.map((item, index) => {
+              const coords = getListingCoords(item, index);
+              return (
+                <Marker
+                  key={String(item.id || item.listingId || index)}
+                  coordinate={coords}
+                  title={`${item.cropName} (${item.grade})`}
+                  description={`GH₵ ${Number(item.price || 0).toFixed(2)}/unit - ${item.quantity} available`}
+                  pinColor="#12372A"
+                  onCalloutPress={() => handleOpenOfferModal(item)}
+                >
+                  {Callout ? (
+                    <Callout style={styles.calloutBox} onPress={() => handleOpenOfferModal(item)}>
+                      <View style={styles.calloutContent}>
+                        <Text style={styles.calloutTitle}>{item.cropName}</Text>
+                        <Text style={styles.calloutPrice}>GH₵ {(Number(item.price) || 0).toFixed(2)}/unit</Text>
+                        <Text style={styles.calloutSub}>Qty: {item.quantity} | Grade {item.grade}</Text>
+                        <Text style={styles.calloutAction}>Tap to Make Offer ➔</Text>
+                      </View>
+                    </Callout>
+                  ) : null}
+                </Marker>
+              );
+            })}
+          </MapView>
         </View>
       ) : (
         <FlatList
@@ -376,7 +479,6 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 12,
   },
   listContent: {
     paddingBottom: 24,
@@ -387,7 +489,6 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     borderRadius: theme.roundness.large,
     marginBottom: theme.spacing.md,
-    elevation: 0,
     shadowColor: theme.colors.text,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.02,
@@ -545,5 +646,76 @@ const styles = StyleSheet.create({
   },
   modalBtn: {
     borderRadius: theme.roundness.medium,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  toggleGroup: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 8,
+    padding: 2,
+  },
+  toggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+  },
+  toggleBtnActive: {
+    backgroundColor: '#12372A',
+  },
+  toggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#12372A',
+  },
+  toggleTextActive: {
+    color: '#FFFFFF',
+  },
+  mapContainer: {
+    flex: 1,
+    height: 400,
+    borderRadius: theme.roundness.medium,
+    overflow: 'hidden',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  mapView: {
+    width: '100%',
+    height: '100%',
+  },
+  calloutBox: {
+    width: 180,
+    padding: 6,
+  },
+  calloutContent: {
+    gap: 2,
+  },
+  calloutTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#12372A',
+  },
+  calloutPrice: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  calloutSub: {
+    fontSize: 10,
+    color: '#64748B',
+  },
+  calloutAction: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#2563EB',
+    marginTop: 4,
   },
 });
