@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { Card, TextInput, Button } from 'react-native-paper';
 import { api } from '../../services/api';
@@ -15,29 +16,51 @@ import { Star, MessageSquarePlus, Calendar } from 'lucide-react-native';
 
 export default function RatingsTab() {
   const [ratings, setRatings] = useState([]);
+  const [completedFarmers, setCompletedFarmers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
 
   // Form State
-  const [farmerSelect, setFarmerSelect] = useState('farmer_1_seed'); // default to Kofi Mensah
+  const [farmerSelect, setFarmerSelect] = useState('');
   const [score, setScore] = useState('5');
   const [comment, setComment] = useState('');
 
-  const loadRatings = async () => {
+  const loadFarmersAndRatings = async () => {
     setIsLoading(true);
     try {
-      const data = await api.fetchBuyerRatings();
-      setRatings(data);
+      const [ratingsData, ordersData] = await Promise.all([
+        api.fetchBuyerRatings().catch(() => []),
+        api.fetchBuyerOrders().catch(() => []),
+      ]);
+
+      setRatings(Array.isArray(ratingsData) ? ratingsData : []);
+
+      // Extract unique farmers from orders
+      const farmersMap = new Map();
+      if (Array.isArray(ordersData)) {
+        ordersData.forEach((order) => {
+          const farmerId = order.farmerId || order.farmer_id || order.sellerId || order.user_id;
+          const farmerName = order.farmerName || order.farmer_name || order.sellerName || 'Farmer';
+          if (farmerId && !farmersMap.has(String(farmerId))) {
+            farmersMap.set(String(farmerId), { id: String(farmerId), name: farmerName });
+          }
+        });
+      }
+
+      const farmerList = Array.from(farmersMap.values());
+      setCompletedFarmers(farmerList);
+      if (farmerList.length > 0) {
+        setFarmerSelect(farmerList[0].id);
+      }
     } catch (error) {
-      console.error('Error fetching buyer ratings:', error);
-      Alert.alert('Error', 'Failed to retrieve ratings history.');
+      console.error('Error fetching buyer ratings or farmers:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    loadRatings();
+    loadFarmersAndRatings();
   }, []);
 
   const handleSubmitRating = async () => {
@@ -59,7 +82,7 @@ export default function RatingsTab() {
       });
       Alert.alert('Success', 'Your review has been submitted to the farmer.');
       setComment('');
-      loadRatings();
+      loadFarmersAndRatings();
     } catch (error) {
       console.error('Error submitting rating:', error);
       Alert.alert('Error', error.message || 'Failed to submit review.');
@@ -114,24 +137,25 @@ export default function RatingsTab() {
           </View>
 
           <Text style={styles.label}>Select Farmer</Text>
-          <View style={styles.radioRow}>
-            <TouchableOpacity
-              style={[styles.radioOption, farmerSelect === 'farmer_1_seed' && styles.radioActive]}
-              onPress={() => setFarmerSelect('farmer_1_seed')}
-            >
-              <Text style={[styles.radioText, farmerSelect === 'farmer_1_seed' && styles.radioTextActive]}>
-                Kofi Mensah
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.radioRow}>
+            {completedFarmers.length > 0 ? (
+              completedFarmers.map((f) => (
+                <TouchableOpacity
+                  key={f.id}
+                  style={[styles.radioOption, farmerSelect === f.id && styles.radioActive]}
+                  onPress={() => setFarmerSelect(f.id)}
+                >
+                  <Text style={[styles.radioText, farmerSelect === f.id && styles.radioTextActive]}>
+                    {f.name}
+                  </Text>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <Text style={{ fontSize: 12, color: '#94A3B8', fontStyle: 'italic', paddingVertical: 8 }}>
+                No past transactions found yet
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.radioOption, farmerSelect === 'farmer_2_seed' && styles.radioActive]}
-              onPress={() => setFarmerSelect('farmer_2_seed')}
-            >
-              <Text style={[styles.radioText, farmerSelect === 'farmer_2_seed' && styles.radioTextActive]}>
-                Ama Serwaa
-              </Text>
-            </TouchableOpacity>
-          </View>
+            )}
+          </ScrollView>
 
           <Text style={styles.label}>Rating Score</Text>
           <View style={styles.starsSelectRow}>

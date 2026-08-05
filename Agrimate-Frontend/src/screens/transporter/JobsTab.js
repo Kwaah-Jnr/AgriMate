@@ -17,31 +17,8 @@ import { theme } from '../../theme/theme';
 let cachedTransporterJobs = null;
 registerCacheReset(() => { cachedTransporterJobs = null; });
 
-const initialTransporterJobsSeed = [
-  {
-    id: 'job_1',
-    cropName: 'White Maize (50 bags)',
-    pickupLocation: 'Techiman Market, Bono East',
-    dropoffLocation: 'Makola Market, Accra',
-    distance: '360 km',
-    payout: 450.00,
-    status: 'open',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'job_2',
-    cropName: 'Yam Tubers (100 crates)',
-    pickupLocation: 'Ejura Farms, Ashanti Region',
-    dropoffLocation: 'Kejetia Market, Kumasi',
-    distance: '85 km',
-    payout: 280.00,
-    status: 'open',
-    createdAt: new Date().toISOString(),
-  }
-];
-
 export default function JobsTab() {
-  const [jobs, setJobsState] = useState(cachedTransporterJobs || initialTransporterJobsSeed);
+  const [jobs, setJobsState] = useState(cachedTransporterJobs || []);
   const [isLoading, setIsLoading] = useState(true);
   const [isClaimLoading, setIsClaimLoading] = useState({});
 
@@ -69,13 +46,13 @@ export default function JobsTab() {
         }
       } else {
         if (!cachedTransporterJobs) {
-          cachedTransporterJobs = initialTransporterJobsSeed;
+          cachedTransporterJobs = [];
         }
         setJobs(cachedTransporterJobs);
       }
     } catch (error) {
       if (!cachedTransporterJobs) {
-        cachedTransporterJobs = initialTransporterJobsSeed;
+        cachedTransporterJobs = [];
       }
       setJobs(cachedTransporterJobs);
     } finally {

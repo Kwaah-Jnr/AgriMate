@@ -66,6 +66,7 @@ export default function DashboardScreen() {
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, listings, offers, wallet, ratings, analytics
   const [pendingOffersCount, setPendingOffersCount] = useState(0);
   const [unfundedOrdersCount, setUnfundedOrdersCount] = useState(0);
+  const [buyerSummary, setBuyerSummary] = useState({ activeOrdersCount: 0, totalProcurementValue: 0 });
 
   const fetchNotificationCounts = async () => {
     if (!user) return;
@@ -75,9 +76,18 @@ export default function DashboardScreen() {
         const summary = await api.fetchDashboardSummary();
         setPendingOffersCount(summary.pendingOffersCount || 0);
       } else if (userRole === 'buyer') {
-        const ordersData = await api.fetchBuyerOrders();
+        const [ordersData, summaryData] = await Promise.all([
+          api.fetchBuyerOrders().catch(() => []),
+          api.fetchBuyerDashboardSummary().catch(() => ({})),
+        ]);
         const unfunded = (Array.isArray(ordersData) ? ordersData : []).filter(o => o.escrowStatus !== 'funded').length;
         setUnfundedOrdersCount(unfunded);
+        if (summaryData) {
+          setBuyerSummary({
+            activeOrdersCount: summaryData.activeOrdersCount || (Array.isArray(ordersData) ? ordersData.length : 0),
+            totalProcurementValue: summaryData.totalProcurementValue || summaryData.totalSpent || 0,
+          });
+        }
       }
     } catch (err) {
       console.log('Error fetching notification counts:', err.message || err);
@@ -86,17 +96,9 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     fetchNotificationCounts();
-    // B11 fix: reduced from 8s to 30s — 8s was flooding the DB connection pool
     const interval = setInterval(fetchNotificationCounts, 30000);
     return () => clearInterval(interval);
   }, [user]);
-
-  useEffect(() => {
-    // Only refresh counts when switching tabs (not on mount — handled by interval above)
-    if (activeTab) {
-      fetchNotificationCounts();
-    }
-  }, [activeTab]);
 
   const name = user?.fullName || 'AgriMate Member';
   const role = user?.role ? user.role.toLowerCase() : 'farmer';
@@ -127,11 +129,11 @@ export default function DashboardScreen() {
         {/* Refined Stats */}
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>4</Text>
+            <Text style={styles.statNumber}>{buyerSummary.activeOrdersCount || 0}</Text>
             <Text style={styles.statLabel}>Active Procurements</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>GH₵2,150</Text>
+            <Text style={styles.statNumber}>GH₵{(buyerSummary.totalProcurementValue || 0).toLocaleString()}</Text>
             <Text style={styles.statLabel}>Total Procurement Value</Text>
           </View>
         </View>
@@ -198,12 +200,24 @@ export default function DashboardScreen() {
 
         {/* Modular Screen Render */}
         <View style={styles.tabContentContainer}>
-          {activeTab === 'dashboard' && <DashboardTab user={user} onNavigate={setActiveTab} />}
-          {activeTab === 'listings' && <ListingsTab />}
-          {activeTab === 'offers' && <OffersTab />}
-          {activeTab === 'wallet' && <WalletTab />}
-          {activeTab === 'ratings' && <RatingsTab />}
-          {activeTab === 'analytics' && <AnalyticsTab />}
+          <View style={{ flex: 1, display: activeTab === 'dashboard' ? 'flex' : 'none' }}>
+            <DashboardTab user={user} onNavigate={setActiveTab} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'listings' ? 'flex' : 'none' }}>
+            <ListingsTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'offers' ? 'flex' : 'none' }}>
+            <OffersTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'wallet' ? 'flex' : 'none' }}>
+            <WalletTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'ratings' ? 'flex' : 'none' }}>
+            <RatingsTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'analytics' ? 'flex' : 'none' }}>
+            <AnalyticsTab />
+          </View>
         </View>
 
         {/* Premium Bottom Tab Bar */}
@@ -285,14 +299,30 @@ export default function DashboardScreen() {
 
         {/* Modular Screen Render */}
         <View style={styles.tabContentContainer}>
-          {activeTab === 'dashboard' && <BuyerDashboardTab user={user} onNavigate={setActiveTab} />}
-          {activeTab === 'marketplace' && <BuyerMarketplaceTab onNavigate={setActiveTab} />}
-          {activeTab === 'offers' && <BuyerOffersTab />}
-          {activeTab === 'orders' && <BuyerOrdersTab />}
-          {activeTab === 'payments' && <BuyerPaymentsTab />}
-          {activeTab === 'ratings' && <BuyerRatingsTab />}
-          {activeTab === 'disputes' && <BuyerDisputesTab />}
-          {activeTab === 'analytics' && <BuyerAnalyticsTab />}
+          <View style={{ flex: 1, display: activeTab === 'dashboard' ? 'flex' : 'none' }}>
+            <BuyerDashboardTab user={user} onNavigate={setActiveTab} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'marketplace' ? 'flex' : 'none' }}>
+            <BuyerMarketplaceTab onNavigate={setActiveTab} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'offers' ? 'flex' : 'none' }}>
+            <BuyerOffersTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'orders' ? 'flex' : 'none' }}>
+            <BuyerOrdersTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'payments' ? 'flex' : 'none' }}>
+            <BuyerPaymentsTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'ratings' ? 'flex' : 'none' }}>
+            <BuyerRatingsTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'disputes' ? 'flex' : 'none' }}>
+            <BuyerDisputesTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'analytics' ? 'flex' : 'none' }}>
+            <BuyerAnalyticsTab />
+          </View>
         </View>
 
         {/* Premium Bottom Tab Bar */}
@@ -395,13 +425,27 @@ export default function DashboardScreen() {
 
         {/* Modular Screen Render */}
         <View style={styles.tabContentContainer}>
-          {activeTab === 'dashboard' && <TransporterDashboardTab user={user} onNavigate={setActiveTab} />}
-          {activeTab === 'jobs' && <TransporterJobsTab />}
-          {activeTab === 'delivery' && <TransporterDeliveryTab />}
-          {activeTab === 'earnings' && <TransporterEarningsTab />}
-          {activeTab === 'wallet' && <TransporterWalletTab />}
-          {activeTab === 'ratings' && <TransporterRatingsTab />}
-          {activeTab === 'analytics' && <TransporterAnalyticsTab />}
+          <View style={{ flex: 1, display: activeTab === 'dashboard' ? 'flex' : 'none' }}>
+            <TransporterDashboardTab user={user} onNavigate={setActiveTab} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'jobs' ? 'flex' : 'none' }}>
+            <TransporterJobsTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'delivery' ? 'flex' : 'none' }}>
+            <TransporterDeliveryTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'earnings' ? 'flex' : 'none' }}>
+            <TransporterEarningsTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'wallet' ? 'flex' : 'none' }}>
+            <TransporterWalletTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'ratings' ? 'flex' : 'none' }}>
+            <TransporterRatingsTab />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'analytics' ? 'flex' : 'none' }}>
+            <TransporterAnalyticsTab />
+          </View>
         </View>
 
         {/* Premium Bottom Tab Bar */}

@@ -11,6 +11,7 @@ router.use(requireRole("transporter"));
    1. Job Discovery & Assignment Routes
    ========================================================================== */
 router.get("/jobs/available", transporterController.getAvailableJobs);
+router.post("/jobs/quote", transporterController.calculateJobQuote);
 router.post("/jobs/:id/claim", transporterController.claimJob);
 router.get("/jobs/active", transporterController.getActiveJobs);
 

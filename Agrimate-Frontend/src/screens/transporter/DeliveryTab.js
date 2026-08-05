@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
-import { Card, Button, Portal } from 'react-native-paper';
+import { Card, Button } from 'react-native-paper';
 import { api, registerCacheReset } from '../../services/api';
 import { Truck, MapPin, Navigation, Compass, Calendar, QrCode, Scan, ShieldAlert } from 'lucide-react-native';
 import * as Location from 'expo-location';
@@ -20,27 +20,8 @@ import { theme } from '../../theme/theme';
 let cachedTransporterDeliveries = null;
 registerCacheReset(() => { cachedTransporterDeliveries = null; });
 
-const initialTransporterDeliveriesSeed = [
-  {
-    id: 'del_1',
-    jobId: 'del_1',
-    orderId: 'del_1',
-    cropName: 'Cocoa Beans (20 bags)',
-    pickupLocation: 'Sefwi Wiawso Farm Depot',
-    dropoffLocation: 'Tema Port Storage',
-    farmerName: 'Kwaku Addai',
-    farmerPhone: '+233 24 999 8888',
-    buyerName: 'Global Commodities Ltd',
-    buyerPhone: '+233 50 111 2222',
-    payout: 650.00,
-    deliveryStatus: 'claimed',
-    status: 'claimed',
-    createdAt: new Date().toISOString(),
-  }
-];
-
 export default function DeliveryTab() {
-  const [activeJobs, setActiveJobsState] = useState(cachedTransporterDeliveries || initialTransporterDeliveriesSeed);
+  const [activeJobs, setActiveJobsState] = useState(cachedTransporterDeliveries || []);
   const [isLoading, setIsLoading] = useState(true);
   const [scanModalVisible, setScanModalVisible] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -79,13 +60,13 @@ export default function DeliveryTab() {
         }
       } else {
         if (!cachedTransporterDeliveries) {
-          cachedTransporterDeliveries = initialTransporterDeliveriesSeed;
+          cachedTransporterDeliveries = [];
         }
         setActiveJobs(cachedTransporterDeliveries);
       }
     } catch (error) {
       if (!cachedTransporterDeliveries) {
-        cachedTransporterDeliveries = initialTransporterDeliveriesSeed;
+        cachedTransporterDeliveries = [];
       }
       setActiveJobs(cachedTransporterDeliveries);
     } finally {

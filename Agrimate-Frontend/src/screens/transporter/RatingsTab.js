@@ -12,25 +12,8 @@ import { Card } from 'react-native-paper';
 import { Star, User, Calendar } from 'lucide-react-native';
 import { api } from '../../services/api';
 
-const seedReviews = [
-  {
-    id: 'rev_1',
-    authorName: 'Kofi Mensah (Farmer)',
-    score: 5,
-    comment: 'Very polite transporter, picked up the cargo exactly on time and maintained crop freshness.',
-    createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()
-  },
-  {
-    id: 'rev_2',
-    authorName: 'Ama Serwaa (Buyer)',
-    score: 4.5,
-    comment: 'Quick delivery, very friendly, would hire again.',
-    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
-  }
-];
-
 export default function RatingsTab() {
-  const [reviews, setReviews] = useState(seedReviews);
+  const [reviews, setReviews] = useState([]);
   const [averageScore, setAverageScore] = useState('4.8');
   const [isLoading, setIsLoading] = useState(true);
 

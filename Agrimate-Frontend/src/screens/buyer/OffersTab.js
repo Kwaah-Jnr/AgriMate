@@ -17,29 +17,8 @@ import { ShoppingBag, Calendar, User, Edit3, Trash2 } from 'lucide-react-native'
 let cachedBuyerOffers = null;
 registerCacheReset(() => { cachedBuyerOffers = null; });
 
-const initialBuyerOffersSeed = [
-  {
-    id: 'offer_b1',
-    cropName: 'Sweet Potatoes',
-    farmerName: 'Kwame Owusu',
-    quantity: 15,
-    price: 450.00,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'offer_b2',
-    cropName: 'Yellow Maize',
-    farmerName: 'Abena Osei',
-    quantity: 30,
-    price: 520.00,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  }
-];
-
 export default function OffersTab() {
-  const [offers, setOffersState] = useState(cachedBuyerOffers || initialBuyerOffersSeed);
+  const [offers, setOffersState] = useState(cachedBuyerOffers || []);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
 
@@ -87,13 +66,13 @@ export default function OffersTab() {
         }
       } else {
         if (!cachedBuyerOffers) {
-          cachedBuyerOffers = initialBuyerOffersSeed;
+          cachedBuyerOffers = [];
         }
         setOffers(cachedBuyerOffers);
       }
     } catch (error) {
       if (!cachedBuyerOffers) {
-        cachedBuyerOffers = initialBuyerOffersSeed;
+        cachedBuyerOffers = [];
       }
       setOffers(cachedBuyerOffers);
     } finally {

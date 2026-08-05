@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { AuthContext } from '../context/AuthContext';
 import { theme } from '../theme/theme';
 
@@ -30,6 +31,31 @@ export default function SignupScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState('farmer'); // Default role: farmer
   const [vehicleNumber, setVehicleNumber] = useState('');
+
+  const handleDetectLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Permission to access location was denied.');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({});
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+
+      if (geocode && geocode.length > 0) {
+        const place = geocode[0];
+        const placeName = [place.city || place.subregion || place.district, place.region || place.country].filter(Boolean).join(', ');
+        setRegion(placeName || `${loc.coords.latitude.toFixed(4)}, ${loc.coords.longitude.toFixed(4)}`);
+      } else {
+        setRegion(`${loc.coords.latitude.toFixed(4)}, ${loc.coords.longitude.toFixed(4)}`);
+      }
+    } catch (e) {
+      Alert.alert('Location Error', 'Could not retrieve location automatically.');
+    }
+  };
 
   const validateEmail = (emailStr) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -189,11 +215,11 @@ export default function SignupScreen({ navigation }) {
                 />
               </View>
 
-              {/* Region */}
+              {/* Region / Location */}
               <View style={styles.inputContainer}>
                 <Feather name="map-pin" size={18} color="#94A3B8" style={styles.inputIcon} />
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { flex: 1 }]}
                   placeholder="Region / Location (e.g., California)"
                   placeholderTextColor="#94A3B8"
                   value={region}
@@ -202,6 +228,9 @@ export default function SignupScreen({ navigation }) {
                     setErrorMessage(null);
                   }}
                 />
+                <TouchableOpacity onPress={handleDetectLocation} style={{ paddingHorizontal: 8 }}>
+                  <Feather name="navigation" size={16} color="#12372A" />
+                </TouchableOpacity>
               </View>
 
               {/* Password */}

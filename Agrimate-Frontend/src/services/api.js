@@ -5,12 +5,20 @@ import { Platform } from 'react-native';
  * Configure backend API base URL.
  * - 'http://localhost:5000' is standard for iOS simulator / web / desktop testing.
  * - 'http://10.0.2.2:5000' is the loopback IP for Android emulator testing.
+ * - For physical Android device testing, replace '10.0.2.2' with your computer's local IP address (e.g., 'http://192.168.1.100:5000').
  */
 const BASE_URL = Platform.OS === 'android' ? 'http://10.0.2.2:5000' : 'http://localhost:5000';
 
 let authToken = null;
 let unauthorizedHandler = null;
 let cacheResetCallbacks = [];
+
+const fetchWithTimeout = (url, options = {}, ms = 10000) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(id));
+};
 
 export const registerCacheReset = (fn) => {
   if (typeof fn === 'function' && !cacheResetCallbacks.includes(fn)) {
@@ -135,13 +143,6 @@ const handleResponse = async (response) => {
 
 export const api = {
   /**
-   * Set JWT active token dynamically for Authorization headers.
-   */
-  setToken: (token) => {
-    authToken = token;
-  },
-
-  /**
    * Register a callback to execute when a 401 Unauthorized response is received.
    */
   onUnauthorized: (handler) => {
@@ -150,7 +151,7 @@ export const api = {
 
   // Manual Signup
   registerUser: async (userData) => {
-    const response = await fetch(`${BASE_URL}/api/users/register`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/users/register`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(userData),
@@ -160,7 +161,7 @@ export const api = {
 
   // Manual Login
   loginUser: async (credentials) => {
-    const response = await fetch(`${BASE_URL}/api/auth/login`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(credentials),
@@ -170,7 +171,7 @@ export const api = {
 
   // Google Login
   verifyGoogleToken: async (token) => {
-    const response = await fetch(`${BASE_URL}/api/auth/google`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/auth/google`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ token }),
@@ -180,7 +181,7 @@ export const api = {
 
   // Apple Login
   verifyAppleToken: async (token, fullName) => {
-    const response = await fetch(`${BASE_URL}/api/auth/apple`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/auth/apple`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ token, fullName }),
@@ -190,7 +191,7 @@ export const api = {
 
   // --- Farmer Listings ---
   fetchListings: async () => {
-    const response = await fetch(`${BASE_URL}/api/farmer/listings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/listings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -198,7 +199,7 @@ export const api = {
   },
 
   createListing: async (cropData) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/listings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/listings`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake(cropData)),
@@ -207,7 +208,7 @@ export const api = {
   },
 
   updateListing: async (id, cropData) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/listings/${id}`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/listings/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(toSnake(cropData)),
@@ -216,7 +217,7 @@ export const api = {
   },
 
   deleteListing: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/listings/${id}`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/listings/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -226,7 +227,7 @@ export const api = {
 
   // --- Farmer Offers & Escrow ---
   fetchOffers: async () => {
-    const response = await fetch(`${BASE_URL}/api/farmer/offers`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/offers`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -234,7 +235,7 @@ export const api = {
   },
 
   acceptOffer: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/offers/${id}/accept`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/offers/${id}/accept`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -243,7 +244,7 @@ export const api = {
   },
 
   rejectOffer: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/offers/${id}/reject`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/offers/${id}/reject`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -252,7 +253,7 @@ export const api = {
   },
 
   fulfillOrder: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/orders/${id}/fulfill`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/orders/${id}/fulfill`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -263,8 +264,8 @@ export const api = {
   // --- Wallet & MoMo ---
   fetchWalletInfo: async () => {
     const [walletRes, historyRes] = await Promise.all([
-      fetch(`${BASE_URL}/api/farmer/wallet`, { method: 'GET', headers: getHeaders() }),
-      fetch(`${BASE_URL}/api/farmer/wallet/history`, { method: 'GET', headers: getHeaders() })
+      fetchWithTimeout(`${BASE_URL}/api/farmer/wallet`, { method: 'GET', headers: getHeaders() }),
+      fetchWithTimeout(`${BASE_URL}/api/farmer/wallet/history`, { method: 'GET', headers: getHeaders() })
     ]);
     const wallet = await handleResponse(walletRes);
     const history = await handleResponse(historyRes);
@@ -278,7 +279,7 @@ export const api = {
   },
 
   withdrawFunds: async (amount, momoNumber) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/wallet/withdraw`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/wallet/withdraw`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake({ amount, phone: momoNumber })),
@@ -288,7 +289,7 @@ export const api = {
 
   // B12 fix: transporter withdrawal must hit /api/transporter/wallet/withdraw — not the farmer route
   withdrawTransporterFunds: async (amount, momoNumber) => {
-    const response = await fetch(`${BASE_URL}/api/transporter/wallet/withdraw`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/wallet/withdraw`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake({ amount, phone: momoNumber })),
@@ -298,7 +299,7 @@ export const api = {
 
   // --- Ratings ---
   fetchRatings: async () => {
-    const response = await fetch(`${BASE_URL}/api/farmer/ratings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/ratings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -306,7 +307,7 @@ export const api = {
   },
 
   replyToRating: async (id, replyText) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/ratings/${id}/reply`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/ratings/${id}/reply`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake({ reply: replyText })),
@@ -316,7 +317,7 @@ export const api = {
 
   // --- Analytics ---
   fetchFarmerAnalytics: async () => {
-    const response = await fetch(`${BASE_URL}/api/farmer/analytics`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/analytics`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -325,7 +326,7 @@ export const api = {
 
   // --- Dashboard Summary ---
   fetchDashboardSummary: async () => {
-    const response = await fetch(`${BASE_URL}/api/farmer/dashboard`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/dashboard`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -334,7 +335,7 @@ export const api = {
 
   // --- Buyer Dashboard Summary ---
   fetchBuyerDashboardSummary: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/dashboard`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/dashboard`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -343,7 +344,7 @@ export const api = {
 
   // --- Buyer Listings ---
   fetchBuyerListings: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/listings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/listings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -352,7 +353,7 @@ export const api = {
 
   // --- Buyer Offers ---
   fetchBuyerOffers: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/offers`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/offers`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -360,7 +361,7 @@ export const api = {
   },
 
   placeBuyerOffer: async (offerData) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/offers`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/offers`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake(offerData)),
@@ -369,7 +370,7 @@ export const api = {
   },
 
   updateBuyerOffer: async (id, offerData) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/offers/${id}`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/offers/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(toSnake(offerData)),
@@ -379,7 +380,7 @@ export const api = {
 
   cancelBuyerOffer: async (id) => {
     // B8 fix: DELETE requests must not have a body — some proxies/RN networks strip it
-    const response = await fetch(`${BASE_URL}/api/buyer/offers/${id}`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/offers/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
     });
@@ -388,7 +389,7 @@ export const api = {
 
   // --- Buyer Orders ---
   fetchBuyerOrders: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/orders`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -397,7 +398,7 @@ export const api = {
 
   fundBuyerEscrow: async (id, amount) => {
     const transactionId = 'MOMO-TX-' + Math.floor(100000 + Math.random() * 900000);
-    const response = await fetch(`${BASE_URL}/api/buyer/orders/${id}/fund`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders/${id}/fund`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ transaction_id: transactionId, amount }),
@@ -406,7 +407,7 @@ export const api = {
   },
 
   releaseBuyerEscrow: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/orders/${id}/release`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders/${id}/release`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -415,7 +416,7 @@ export const api = {
   },
 
   depositBuyerWallet: async (amount, momoNumber, provider) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/wallet/deposit`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/wallet/deposit`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake({ amount, momoNumber, provider })),
@@ -425,7 +426,7 @@ export const api = {
 
   // --- Buyer Payments ---
   fetchBuyerPayments: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/payments`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/payments`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -434,7 +435,7 @@ export const api = {
 
   // --- Buyer Ratings ---
   fetchBuyerRatings: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/ratings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/ratings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -442,7 +443,7 @@ export const api = {
   },
 
   submitRating: async (ratingData) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/ratings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/ratings`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake(ratingData)),
@@ -452,7 +453,7 @@ export const api = {
 
   // --- Buyer Disputes ---
   fetchBuyerDisputes: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/disputes`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/disputes`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -460,7 +461,7 @@ export const api = {
   },
 
   raiseDispute: async (disputeData) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/orders/${disputeData.orderId}/dispute`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders/${disputeData.orderId}/dispute`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ reason: disputeData.details }),
@@ -470,7 +471,7 @@ export const api = {
 
   // --- Buyer Analytics ---
   fetchBuyerAnalytics: async () => {
-    const response = await fetch(`${BASE_URL}/api/buyer/analytics`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/analytics`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -479,7 +480,7 @@ export const api = {
 
   // B1 fix: resolveBuyerDispute was missing — DisputesTab called this and crashed
   resolveBuyerDispute: async (id, action) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/disputes/${id}/resolve`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/disputes/${id}/resolve`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ action }),
@@ -490,7 +491,7 @@ export const api = {
   // --- Transporter API Calls ---
   // B2 fix: /api/transporter/dashboard route does not exist; returns dashboard data from /analytics instead
   fetchTransporterDashboard: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/analytics`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/analytics`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -500,8 +501,8 @@ export const api = {
   // B12 fix: fetchTransporterWallet was missing — TransporterWalletTab crashed on load
   fetchTransporterWallet: async () => {
     const [walletRes, historyRes] = await Promise.all([
-      fetch(`${BASE_URL}/api/transporter/wallet`, { method: 'GET', headers: getHeaders() }),
-      fetch(`${BASE_URL}/api/transporter/earnings`, { method: 'GET', headers: getHeaders() }),
+      fetchWithTimeout(`${BASE_URL}/api/transporter/wallet`, { method: 'GET', headers: getHeaders() }),
+      fetchWithTimeout(`${BASE_URL}/api/transporter/earnings`, { method: 'GET', headers: getHeaders() }),
     ]);
     const wallet = await handleResponse(walletRes);
     const history = await handleResponse(historyRes);
@@ -515,7 +516,7 @@ export const api = {
   },
 
   fetchTransporterJobs: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/available`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/jobs/available`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -523,7 +524,7 @@ export const api = {
   },
 
   fetchTransporterActiveJobs: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/active`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/jobs/active`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -531,7 +532,7 @@ export const api = {
   },
 
   claimTransporterJob: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/claim`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/jobs/${id}/claim`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({}),
@@ -540,7 +541,7 @@ export const api = {
   },
 
   pickupTransporterJob: async (id, pickupToken) => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/confirm-pickup`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/jobs/${id}/confirm-pickup`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ qr_code: pickupToken }),
@@ -549,7 +550,7 @@ export const api = {
   },
 
   deliverTransporterJob: async (id, deliveryToken) => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/confirm-delivery`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/jobs/${id}/confirm-delivery`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ qr_code: deliveryToken }),
@@ -558,7 +559,7 @@ export const api = {
   },
 
   fetchTransporterEarnings: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/earnings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/earnings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -566,7 +567,7 @@ export const api = {
   },
 
   fetchTransporterRatings: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/ratings`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/ratings`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -574,7 +575,7 @@ export const api = {
   },
 
   fetchTransporterAnalytics: async () => {
-    const response = await fetch(`${BASE_URL}/api/transporter/analytics`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/analytics`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -583,7 +584,7 @@ export const api = {
 
   // B3 fix: backend expects snake_case keys { qr_code, vehicle_number }
   selfPickupBuyerOrder: async (id, pickupToken, vehicleNumber) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/orders/${id}/self-pickup`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders/${id}/self-pickup`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ qr_code: pickupToken, vehicle_number: vehicleNumber }),
@@ -592,7 +593,7 @@ export const api = {
   },
 
   updateOrderLocation: async (id, { latitude, longitude }) => {
-    const response = await fetch(`${BASE_URL}/api/transporter/jobs/${id}/location`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/transporter/jobs/${id}/location`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ latitude, longitude }),
@@ -601,7 +602,7 @@ export const api = {
   },
 
   fetchBuyerOrderLocation: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/buyer/orders/${id}/location`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders/${id}/location`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -609,7 +610,7 @@ export const api = {
   },
 
   fetchFarmerOrderLocation: async (id) => {
-    const response = await fetch(`${BASE_URL}/api/farmer/orders/${id}/location`, {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/orders/${id}/location`, {
       method: 'GET',
       headers: getHeaders(),
     });

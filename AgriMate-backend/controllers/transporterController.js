@@ -21,6 +21,32 @@ async function logHistory(client, userId, actionType, referenceId, description) 
   );
 }
 
+/**
+ * Dynamic Road Distance & Shipping Rate Estimator
+ */
+function calculateRoadDistanceAndPayout(originAddress, destinationAddress, estimatedKm = 25) {
+  const distanceKm = Math.max(parseFloat(estimatedKm) || 15.0, 5.0);
+  const baseRate = 25.0; // GH₵ base handling fee
+  const perKmRate = 4.5; // GH₵ per km driving rate
+  const calculatedPayout = baseRate + (distanceKm * perKmRate);
+
+  return {
+    distanceKm: parseFloat(distanceKm.toFixed(1)),
+    estimatedPayout: parseFloat(calculatedPayout.toFixed(2)),
+    ratePerKm: perKmRate,
+  };
+}
+
+exports.calculateJobQuote = async (req, res) => {
+  const { pickup_location, dropoff_location, distance_km } = req.body;
+  try {
+    const quote = calculateRoadDistanceAndPayout(pickup_location, dropoff_location, distance_km);
+    res.json(quote);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to calculate distance quote" });
+  }
+};
+
 /* ==========================================================================
    1. Job Discovery & Assignment
    ========================================================================== */

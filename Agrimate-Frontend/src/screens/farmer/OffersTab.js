@@ -30,35 +30,8 @@ try {
 let cachedFarmerOffers = null;
 registerCacheReset(() => { cachedFarmerOffers = null; });
 
-const initialFarmerOffersSeed = [
-  {
-    id: 'offer_1',
-    buyerName: 'Kofi Mensah (Buyer)',
-    buyerPhone: '+233 24 123 4567',
-    cropName: 'Rice',
-    quantity: 5,
-    price: 650.00,
-    total: 3250.00,
-    status: 'pending',
-    escrowStatus: 'unfunded',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'offer_2',
-    buyerName: 'Ama Serwaa (Buyer)',
-    buyerPhone: '+233 50 987 6543',
-    cropName: 'Beans',
-    quantity: 20,
-    price: 900.00,
-    total: 18000.00,
-    status: 'pending',
-    escrowStatus: 'unfunded',
-    createdAt: new Date().toISOString(),
-  }
-];
-
 export default function OffersTab() {
-  const [offers, setOffersState] = useState(cachedFarmerOffers || initialFarmerOffersSeed);
+  const [offers, setOffersState] = useState(cachedFarmerOffers || []);
   const [isLoading, setIsLoading] = useState(true);
   const [activeSegment, setActiveSegment] = useState('pending'); // pending, active_contracts
   const [qrModalVisible, setQrModalVisible] = useState(false);
@@ -103,13 +76,13 @@ export default function OffersTab() {
         }
       } else {
         if (!cachedFarmerOffers) {
-          cachedFarmerOffers = initialFarmerOffersSeed;
+          cachedFarmerOffers = [];
         }
         setOffers(cachedFarmerOffers);
       }
     } catch (error) {
       if (!cachedFarmerOffers) {
-        cachedFarmerOffers = initialFarmerOffersSeed;
+        cachedFarmerOffers = [];
       }
       setOffers(cachedFarmerOffers);
     } finally {

@@ -55,8 +55,8 @@ export default function MarketplaceTab({ onNavigate }) {
       return;
     }
     const filtered = listings.filter((item) =>
-      item.cropName.toLowerCase().includes(query.toLowerCase()) ||
-      item.grade.toLowerCase().includes(query.toLowerCase()) ||
+      (item.cropName || '').toLowerCase().includes(query.toLowerCase()) ||
+      (item.grade || '').toLowerCase().includes(query.toLowerCase()) ||
       (item.description && item.description.toLowerCase().includes(query.toLowerCase()))
     );
     setFilteredListings(filtered);

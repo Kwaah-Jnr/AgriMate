@@ -43,6 +43,17 @@ app.get("/test-db", async (req, res) => {
   }
 });
 
+// 404 Route Handler
+app.use((req, res) => {
+  res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
+});
+
+// Global Express Error Middleware
+app.use((err, req, res, next) => {
+  console.error("❌ Unhandled server error:", err.message || err);
+  res.status(500).json({ error: "Internal server error" });
+});
+
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

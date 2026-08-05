@@ -34,10 +34,11 @@ const loginUser = async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // 4. Generate JWT
+    // 4. Generate JWT with fullName included
     const token = jwt.sign(
       {
         user_id: user.user_id,
+        fullName: user.username,
         username: user.username,
         email: user.email,
         role: user.role,
@@ -48,12 +49,13 @@ const loginUser = async (req, res) => {
       { expiresIn: "24h" }
     );
 
-    // 5. If everything is correct, return token and user info (excluding PIN) and role
+    // 5. Return token and user info
     res.json({
       message: "Login successful!",
       token,
       user: {
         id: user.user_id,
+        fullName: user.username,
         username: user.username,
         phone_number: user.phone_number,
         email: user.email,
@@ -63,18 +65,27 @@ const loginUser = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Error logging in user");
-    console.error("Error details:", err.message);
+    console.error("❌ Error logging in user:", err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
 const verifyGoogleToken = async (req, res) => {
   const { token } = req.body;
-  if (!token) return res.status(400).json({ error: "Google OAuth token is required" });
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: "Google OAuth token is required" });
+  }
+
+  // Reject mock tokens in production flow
+  if (token.startsWith("mock-jwt-token-")) {
+    return res.status(400).json({ error: "Mock social tokens are not allowed in full authentication mode. Please sign in with your email or username." });
+  }
+
   try {
-    // Verified Google login logic
-    res.json({ message: "Google sign-in successful", token: jwt.sign({ username: "Google User", role: "farmer" }, JWT_SECRET, { expiresIn: "24h" }) });
+    res.json({
+      message: "Google sign-in processed",
+      token: jwt.sign({ username: "Google User", fullName: "Google User", role: "farmer" }, JWT_SECRET, { expiresIn: "24h" })
+    });
   } catch (err) {
     res.status(500).json({ error: "Google verification failed: " + err.message });
   }
@@ -82,10 +93,20 @@ const verifyGoogleToken = async (req, res) => {
 
 const verifyAppleToken = async (req, res) => {
   const { token, fullName } = req.body;
-  if (!token) return res.status(400).json({ error: "Apple OAuth token is required" });
+  if (!token || typeof token !== 'string') {
+    return res.status(400).json({ error: "Apple OAuth token is required" });
+  }
+
+  if (token.startsWith("mock-jwt-token-")) {
+    return res.status(400).json({ error: "Mock social tokens are not allowed in full authentication mode. Please sign in with your email or username." });
+  }
+
   try {
-    // Verified Apple login logic
-    res.json({ message: "Apple sign-in successful", token: jwt.sign({ username: fullName || "Apple User", role: "farmer" }, JWT_SECRET, { expiresIn: "24h" }) });
+    const displayName = fullName || "Apple User";
+    res.json({
+      message: "Apple sign-in processed",
+      token: jwt.sign({ username: displayName, fullName: displayName, role: "farmer" }, JWT_SECRET, { expiresIn: "24h" })
+    });
   } catch (err) {
     res.status(500).json({ error: "Apple verification failed: " + err.message });
   }

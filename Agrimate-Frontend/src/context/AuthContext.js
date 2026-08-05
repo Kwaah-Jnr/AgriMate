@@ -1,5 +1,4 @@
-// src/context/AuthContext.js
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../services/api';
 
@@ -83,7 +82,7 @@ export const AuthProvider = ({ children }) => {
     api.onUnauthorized(() => {
       logout();
     });
-  }, []);
+  }, [logout]);
 
   // Manual Signup
   const signup = async (userData) => {
@@ -187,7 +186,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   // Logout
-  const logout = async () => {
+  const logout = useCallback(async () => {
     setIsLoading(true);
     try {
       await AsyncStorage.removeItem(TOKEN_KEY);
@@ -199,7 +198,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   return (
     <AuthContext.Provider
