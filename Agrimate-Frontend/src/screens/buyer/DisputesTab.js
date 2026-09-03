@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Card, TextInput, Button } from 'react-native-paper';
 import { api } from '../../services/api';
-import { AlertTriangle, PlusCircle, Calendar, ChevronDown } from 'lucide-react-native';
+import { AlertTriangle, PlusCircle, Calendar, ChevronDown, ShieldCheck } from 'lucide-react-native';
 
 export default function DisputesTab() {
   const [disputes, setDisputes] = useState([]);
@@ -161,6 +161,35 @@ export default function DisputesTab() {
           <Calendar size={10} color="#94A3B8" style={{ marginRight: 4 }} />
           <Text style={styles.dateText}>{new Date(item.createdAt).toLocaleDateString()}</Text>
         </View>
+
+        {(item.status === 'resolved' || item.status === 'refunded' || item.resolutionSummary) && (
+          <View style={styles.adminResolutionBox}>
+            <View style={styles.adminResolutionHeader}>
+              <ShieldCheck size={14} color="#7C3AED" style={{ marginRight: 6 }} />
+              <Text style={styles.adminResolutionTitle}>Administrator Resolution & Decision</Text>
+            </View>
+            
+            <View style={{ marginTop: 4 }}>
+              <Text style={styles.resLabel}>Resolution Outcome:</Text>
+              <Text style={styles.adminSummaryText}>
+                {item.resolutionSummary || 'Dispute reviewed and arbitrated by Admin.'}
+              </Text>
+            </View>
+
+            <View style={{ marginTop: 4 }}>
+              <Text style={styles.resLabel}>Reason for Resolution:</Text>
+              <Text style={styles.adminNotesText}>
+                "{item.adminNotes || 'Dispute investigated by administrator and resolved based on verified transaction evidence.'}"
+              </Text>
+            </View>
+
+            {item.resolvedAt ? (
+              <Text style={styles.resolvedDateText}>
+                Arbitrated on: {new Date(item.resolvedAt).toLocaleDateString()} at {new Date(item.resolvedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            ) : null}
+          </View>
+        )}
 
         {item.status === 'open' && (
           <View style={styles.actionBtnRow}>
@@ -476,5 +505,48 @@ const styles = StyleSheet.create({
   actionBtnLabel: {
     fontSize: 10,
     fontWeight: '700',
+  },
+  adminResolutionBox: {
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 10,
+  },
+  adminResolutionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  adminResolutionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6B21A8',
+  },
+  resLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#6B21A8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+    marginBottom: 1,
+  },
+  adminSummaryText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4C1D95',
+    marginBottom: 2,
+  },
+  adminNotesText: {
+    fontSize: 11,
+    color: '#5B21B6',
+    fontStyle: 'italic',
+    marginBottom: 4,
+  },
+  resolvedDateText: {
+    fontSize: 9,
+    color: '#7E22CE',
+    fontWeight: '600',
   },
 });

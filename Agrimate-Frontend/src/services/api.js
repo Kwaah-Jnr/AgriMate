@@ -675,6 +675,137 @@ export const api = {
     return handleResponse(response);
   },
 
+  // --- Admin Portal Methods ---
+  fetchAdminSummary: async () => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/summary`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  fetchAdminDisputes: async () => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/disputes`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  resolveAdminDispute: async (id, { action, notes, farmer_share_pct }) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/disputes/${id}/resolve`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ action, notes, farmer_share_pct }),
+    });
+    return handleResponse(response);
+  },
+
+  fetchAdminUsers: async (role = '', search = '') => {
+    const query = new URLSearchParams();
+    if (role) query.append('role', role);
+    if (search) query.append('search', search);
+    const queryString = query.toString() ? `?${query.toString()}` : '';
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/users${queryString}`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  updateAdminUserStatus: async (id, is_active) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/users/${id}/status`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ is_active }),
+    });
+    return handleResponse(response);
+  },
+
+  fetchAdminTransactions: async () => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/transactions`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  fetchAdminFleet: async () => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/fleet`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  deleteAdminListing: async (id) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/listings/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  fetchAdminAnalytics: async () => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/admin/analytics`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  // --- Help, Support & Complaints ---
+  createSupportTicket: async ({ subject, category, message }) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/support/tickets`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ subject, category, message }),
+    });
+    return handleResponse(response);
+  },
+
+  fetchUserSupportTickets: async () => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/support/tickets`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  fetchTicketMessages: async (id) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/support/tickets/${id}/messages`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  replySupportTicket: async (id, message, status) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/support/tickets/${id}/reply`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ message, status }),
+    });
+    return handleResponse(response);
+  },
+
+  fetchAdminSupportTickets: async (status = 'all') => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/support/admin/tickets?status=${status}`, {
+      method: 'GET',
+      headers: getHeaders(),
+    });
+    return handleResponse(response);
+  },
+
+  updateAdminTicketStatus: async (id, status) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/support/admin/tickets/${id}/status`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ status }),
+    });
+    return handleResponse(response);
+  },
+
   setToken: (token) => {
     authToken = token;
     if (!token) {

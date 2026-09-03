@@ -12,7 +12,7 @@ const loginUser = async (req, res) => {
   try {
     // 1. Look for the user by username, phone number, or email and fetch their role and vehicle number
     const userResult = await pool.query(
-      `SELECT u.user_id, u.username, u.phone_number, u.email, u.pin, u.region, u.vehicle_number, r.role 
+      `SELECT u.user_id, u.username, u.phone_number, u.email, u.pin, u.region, u.vehicle_number, COALESCE(u.is_active, true) as is_active, r.role 
        FROM users u 
        LEFT JOIN roles r ON u.user_id = r.user_id 
        WHERE u.username = $1 OR u.phone_number = $1 OR u.email = $1`,
@@ -24,6 +24,10 @@ const loginUser = async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
     const user = userResult.rows[0];
+
+    if (user.is_active === false) {
+      return res.status(403).json({ error: "Your account has been suspended by an administrator. Please contact AgriMate support." });
+    }
 
     // 3. Check if the provided PIN/password matches the stored hashed PIN/password
     if (!passwordVal) {

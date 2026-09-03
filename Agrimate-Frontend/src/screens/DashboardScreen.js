@@ -31,6 +31,10 @@ import {
   BarChart3,
   Home,
   AlertTriangle,
+  ShieldAlert,
+  Users,
+  HelpCircle,
+  MessageSquare,
 } from 'lucide-react-native';
 
 // Farmer Tabs
@@ -51,7 +55,6 @@ import BuyerRatingsTab from './buyer/RatingsTab';
 import BuyerDisputesTab from './buyer/DisputesTab';
 import BuyerAnalyticsTab from './buyer/AnalyticsTab';
 
-
 // Transporter Tabs
 import TransporterDashboardTab from './transporter/DashboardTab';
 import TransporterJobsTab from './transporter/JobsTab';
@@ -61,9 +64,20 @@ import TransporterWalletTab from './transporter/WalletTab';
 import TransporterRatingsTab from './transporter/RatingsTab';
 import TransporterAnalyticsTab from './transporter/AnalyticsTab';
 
+// Admin Tabs
+import AdminDashboardTab from './admin/AdminDashboardTab';
+import AdminDisputesTab from './admin/AdminDisputesTab';
+import AdminUsersTab from './admin/AdminUsersTab';
+import AdminTransactionsTab from './admin/AdminTransactionsTab';
+import AdminFleetTab from './admin/AdminFleetTab';
+import AdminAnalyticsTab from './admin/AdminAnalyticsTab';
+import AdminSupportTab from './admin/AdminSupportTab';
+import SupportHelpModal from '../components/SupportHelpModal';
+
 export default function DashboardScreen() {
   const { user, logout } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, listings, offers, wallet, ratings, analytics
+  const [supportModalVisible, setSupportModalVisible] = useState(false);
   const [pendingOffersCount, setPendingOffersCount] = useState(0);
   const [unfundedOrdersCount, setUnfundedOrdersCount] = useState(0);
   const [buyerSummary, setBuyerSummary] = useState({ activeOrdersCount: 0, totalProcurementValue: 0 });
@@ -107,8 +121,15 @@ export default function DashboardScreen() {
     return () => clearInterval(interval);
   }, [user, activeTab]);
 
-  const name = user?.fullName || 'AgriMate Member';
-  const role = user?.role ? user.role.toLowerCase() : 'farmer';
+  const name = user?.fullName || user?.username || 'AgriMate Member';
+  const rawRole = user?.role || '';
+  const role = String(rawRole).toLowerCase();
+
+  const isAdmin = role.includes('admin') || user?.username?.toLowerCase() === 'admin' || user?.email?.toLowerCase().startsWith('admin@');
+  const isBuyer = role === 'buyer';
+  const isTransporter = role === 'transporter' || role === 'transport';
+  const isFarmer = role === 'farmer' || (!isAdmin && !isBuyer && !isTransporter);
+
   const location = user?.region || 'Not Specified';
   const email = user?.email || 'user@agrimate.com';
 
@@ -189,7 +210,7 @@ export default function DashboardScreen() {
 
 
 
-  if (role === 'farmer') {
+  if (isFarmer) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
@@ -200,9 +221,15 @@ export default function DashboardScreen() {
             <Text style={styles.headerTitle}>AgriMate</Text>
             <Text style={styles.headerSubtitle}>Farmer Portal</Text>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutButtonText}>Sign Out</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity style={styles.helpButton} onPress={() => setSupportModalVisible(true)}>
+              <HelpCircle size={14} color="#12372A" />
+              <Text style={styles.helpButtonText}>Help</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.logoutButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Modular Screen Render */}
@@ -284,11 +311,12 @@ export default function DashboardScreen() {
             <Text style={[styles.tabButtonLabel, activeTab === 'analytics' && styles.tabButtonLabelActive]}>Analytics</Text>
           </TouchableOpacity>
         </View>
+        <SupportHelpModal visible={supportModalVisible} onClose={() => setSupportModalVisible(false)} />
       </SafeAreaView>
     );
   }
 
-  if (role === 'buyer') {
+  if (isBuyer) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
@@ -299,9 +327,15 @@ export default function DashboardScreen() {
             <Text style={styles.headerTitle}>AgriMate</Text>
             <Text style={styles.headerSubtitle}>Procurement Portal</Text>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutButtonText}>Sign Out</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity style={styles.helpButton} onPress={() => setSupportModalVisible(true)}>
+              <HelpCircle size={14} color="#12372A" />
+              <Text style={styles.helpButtonText}>Help</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.logoutButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Modular Screen Render */}
@@ -409,12 +443,13 @@ export default function DashboardScreen() {
             </View>
           </ScrollView>
         </View>
+        <SupportHelpModal visible={supportModalVisible} onClose={() => setSupportModalVisible(false)} />
       </SafeAreaView>
     );
   }
 
   // Fallback for Transporter
-  if (role === 'transporter') {
+  if (isTransporter) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
@@ -425,9 +460,15 @@ export default function DashboardScreen() {
             <Text style={styles.headerTitle}>AgriMate</Text>
             <Text style={styles.headerSubtitle}>Logistics Portal</Text>
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutButtonText}>Sign Out</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity style={styles.helpButton} onPress={() => setSupportModalVisible(true)}>
+              <HelpCircle size={14} color="#12372A" />
+              <Text style={styles.helpButtonText}>Help</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.logoutButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Modular Screen Render */}
@@ -517,6 +558,116 @@ export default function DashboardScreen() {
             </View>
           </ScrollView>
         </View>
+        <SupportHelpModal visible={supportModalVisible} onClose={() => setSupportModalVisible(false)} />
+      </SafeAreaView>
+    );
+  }
+
+  // Admin Portal Render
+  if (isAdmin) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        
+        {/* Admin Navigation Bar */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>AgriMate</Text>
+            <Text style={[styles.headerSubtitle, { color: '#7C3AED', fontWeight: '800' }]}>Admin Control Center</Text>
+          </View>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Modular Screen Render */}
+        <View style={styles.tabContentContainer}>
+          <View style={{ flex: 1, display: activeTab === 'dashboard' ? 'flex' : 'none' }}>
+            <AdminDashboardTab isActive={activeTab === 'dashboard'} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'disputes' ? 'flex' : 'none' }}>
+            <AdminDisputesTab isActive={activeTab === 'disputes'} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'users' ? 'flex' : 'none' }}>
+            <AdminUsersTab isActive={activeTab === 'users'} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'transactions' ? 'flex' : 'none' }}>
+            <AdminTransactionsTab isActive={activeTab === 'transactions'} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'fleet' ? 'flex' : 'none' }}>
+            <AdminFleetTab isActive={activeTab === 'fleet'} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'analytics' ? 'flex' : 'none' }}>
+            <AdminAnalyticsTab isActive={activeTab === 'analytics'} />
+          </View>
+          <View style={{ flex: 1, display: activeTab === 'support' ? 'flex' : 'none' }}>
+            <AdminSupportTab isActive={activeTab === 'support'} />
+          </View>
+        </View>
+
+        {/* Admin Bottom Tab Bar */}
+        <View style={styles.bottomTabBarScrollContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomTabBarScrollContent}>
+            <View style={styles.bottomTabBarBuyer}>
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('dashboard')}
+              >
+                <Home size={18} color={activeTab === 'dashboard' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'dashboard' && styles.tabButtonLabelActive]}>Overview</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('disputes')}
+              >
+                <ShieldAlert size={18} color={activeTab === 'disputes' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'disputes' && styles.tabButtonLabelActive]}>Disputes</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('users')}
+              >
+                <Users size={18} color={activeTab === 'users' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'users' && styles.tabButtonLabelActive]}>Users</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('transactions')}
+              >
+                <Wallet size={18} color={activeTab === 'transactions' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'transactions' && styles.tabButtonLabelActive]}>Ledger</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('fleet')}
+              >
+                <Truck size={18} color={activeTab === 'fleet' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'fleet' && styles.tabButtonLabelActive]}>Fleet</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('analytics')}
+              >
+                <BarChart3 size={18} color={activeTab === 'analytics' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'analytics' && styles.tabButtonLabelActive]}>Analytics</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.tabButtonBuyer} 
+                onPress={() => setActiveTab('support')}
+              >
+                <HelpCircle size={18} color={activeTab === 'support' ? '#12372A' : '#94A3B8'} />
+                <Text style={[styles.tabButtonLabel, activeTab === 'support' && styles.tabButtonLabelActive]}>Support Desk</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+        <SupportHelpModal visible={supportModalVisible} onClose={() => setSupportModalVisible(false)} />
       </SafeAreaView>
     );
   }
@@ -554,6 +705,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: theme.colors.border,
     backgroundColor: theme.colors.surface,
+  },
+  helpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  helpButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#12372A',
+    marginLeft: 3,
   },
   headerTitle: {
     fontSize: 18,

@@ -1401,7 +1401,8 @@ exports.getBuyerDisputes = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT d.dispute_id, d.order_id, d.reason, d.status, d.created_at,
+      `SELECT d.dispute_id, d.order_id, d.reason, d.status, d.created_at, d.resolved_at,
+              d.admin_notes, d.resolution_summary,
               l.crop_name, u.username as farmer_name
        FROM disputes d
        JOIN orders o ON d.order_id = o.order_id
@@ -1432,6 +1433,9 @@ exports.getBuyerDisputes = async (req, res) => {
         details,
         status: row.status,
         createdAt: row.created_at,
+        resolvedAt: row.resolved_at,
+        adminNotes: row.admin_notes,
+        resolutionSummary: row.resolution_summary,
         farmerName: row.farmer_name,
         cropName: row.crop_name
       };

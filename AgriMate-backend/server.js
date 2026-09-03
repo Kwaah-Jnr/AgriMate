@@ -6,6 +6,8 @@ const authRoutes = require("./routes/authRoutes");
 const farmerRoutes = require("./routes/farmerRoutes");
 const buyerRoutes = require("./routes/buyerRoutes");
 const transporterRoutes = require("./routes/transporterRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const supportRoutes = require("./routes/supportRoutes");
 
 const app = express();
 
@@ -23,6 +25,8 @@ app.use("/api/users", userRoutes);
 app.use("/api/farmer", farmerRoutes);
 app.use("/api/buyer", buyerRoutes);
 app.use("/api/transporter", transporterRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/support", supportRoutes);
 
 //Basic welcome route
 app.get("/", (req, res) => {
