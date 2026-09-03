@@ -1,4 +1,3 @@
-// src/screens/transporter/WalletTab.js
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -9,25 +8,29 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  RefreshControl,
 } from 'react-native';
 import { TextInput, Button } from 'react-native-paper';
 import { api } from '../../services/api';
 import { Wallet, Smartphone, ArrowDownCircle, ArrowUpCircle } from 'lucide-react-native';
 
-export default function WalletTab() {
+export default function WalletTab({ isActive }) {
   const [balanceInfo, setBalanceInfo] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [momoNumber, setMomoNumber] = useState('');
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
 
-  const loadWalletInfo = async () => {
-    setIsLoading(true);
+  const loadWalletInfo = async (showRefIndicator = false) => {
+    if (showRefIndicator) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     try {
-      // B12 fix: use the dedicated fetchTransporterWallet instead of fetchTransporterDashboard
       const data = await api.fetchTransporterWallet();
-      // Flatten response shape to match what the rest of this tab expects
       setBalanceInfo({
         settledBalance: data.balance?.settled ?? 0,
         escrowBalance: data.balance?.escrow ?? 0,
@@ -37,12 +40,19 @@ export default function WalletTab() {
       console.error('Error fetching wallet info:', error);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     loadWalletInfo();
   }, []);
+
+  useEffect(() => {
+    if (isActive) {
+      loadWalletInfo(true);
+    }
+  }, [isActive]);
 
   const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
@@ -84,7 +94,17 @@ export default function WalletTab() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={() => loadWalletInfo(true)}
+          colors={['#12372A']}
+        />
+      }
+    >
       {/* Wallet Card */}
       <View style={styles.walletCard}>
         <View style={styles.walletHeader}>

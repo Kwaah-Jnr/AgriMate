@@ -192,7 +192,7 @@ exports.getOffers = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT o.order_id, o.price, o.quantity, 
+      `SELECT o.order_id, o.price, o.counter_price, o.quantity, 
               o.status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
               l.listing_id, l.crop_name, l.grade, l.location as listing_location,
               u.username as buyer_name, u.phone_number as buyer_phone
@@ -368,6 +368,78 @@ exports.rejectOffer = async (req, res) => {
     await client.query("ROLLBACK");
     console.error("❌ Error rejecting offer:", err.message);
     res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+
+exports.counterOffer = async (req, res) => {
+  const orderId = req.params.id;
+  const { counter_price, note } = req.body;
+  const userId = req.user.user_id;
+
+  const counterPriceNum = parseFloat(counter_price);
+  if (isNaN(counterPriceNum) || counterPriceNum <= 0) {
+    return res.status(400).json({ error: "A valid positive counter-offer price per unit is required." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify ownership of the listing linked to the offer
+    const verifyResult = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    if (verifyResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Offer not found." });
+    }
+    const offer = verifyResult.rows[0];
+
+    if (offer.farmer_id !== userId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden. You do not own the listing associated with this offer." });
+    }
+
+    if (offer.status !== "pending" && offer.status !== "countered") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Cannot bargain offer in '${offer.status}' state.` });
+    }
+
+    const noteText = note ? note.trim() : (offer.note || null);
+
+    await client.query(
+      "UPDATE orders SET status = 'countered', counter_price = $1, note = $2, updated_at = NOW() WHERE order_id = $3",
+      [counterPriceNum, noteText, orderId]
+    );
+
+    await logHistory(client, userId, "offer_countered", orderId, `Farmer submitted counter-offer of ${counterPriceNum} GHS/unit for order ID ${orderId}`);
+
+    await client.query("COMMIT");
+
+    const updatedOffer = await client.query(
+      `SELECT o.order_id, o.price, o.price as offered_price, o.counter_price, o.quantity, o.quantity as offered_quantity, 
+              o.status, o.status as offer_status, o.pickup_by, o.note, o.created_at, o.escrow_status, o.transporter_vehicle,
+              l.listing_id, l.crop_name, l.grade, l.location as listing_location,
+              u.username as buyer_name, u.phone_number as buyer_phone
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON o.buyer_id = u.user_id
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    res.json(updatedOffer.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error countering offer:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
   } finally {
     client.release();
   }
@@ -661,33 +733,70 @@ exports.getAnalytics = async (req, res) => {
   try {
     // 1. Total listings created by farmer
     const listingsCount = await pool.query("SELECT COUNT(*) FROM listings WHERE user_id = $1", [userId]);
+    const totalListings = parseInt(listingsCount.rows[0].count) || 0;
 
-    // 2. Sum of all completed / accepted orders for revenue
-    const revenueSum = await pool.query(
-      `SELECT SUM(o.price * o.quantity)::DECIMAL(12,2) as total_revenue
-       FROM orders o
-       JOIN listings l ON o.listings_id = l.listing_id
-       WHERE l.user_id = $1 AND o.status IN ('accepted', 'ready_for_pickup', 'picked_up', 'delivered')`,
+    // 2. Active listings count
+    const activeListingsRes = await pool.query("SELECT COUNT(*) FROM listings WHERE user_id = $1 AND status = 'open'", [userId]);
+    const activeListings = parseInt(activeListingsRes.rows[0].count) || 0;
+
+    // 3. Completed / Sold listings count
+    const soldListingsRes = await pool.query(
+      `SELECT COUNT(DISTINCT o.order_id) 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE l.user_id = $1 AND (o.status = 'delivered' OR o.escrow_status IN ('half_released', 'released'))`,
       [userId]
     );
+    const soldListings = parseInt(soldListingsRes.rows[0].count) || 0;
 
-    // 3. Average completion time (Order created -> Order delivered)
-    // To calculate this: we check history log intervals or orders table updates
-    // Let's use orders created_at and updated_at (where status = 'delivered')
+    // 4. Gross Revenue
+    const revenueSum = await pool.query(
+      `SELECT COALESCE(SUM(o.price * o.quantity), 0)::DECIMAL(12,2) as total_revenue
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       WHERE l.user_id = $1 AND (o.status = 'delivered' OR o.escrow_status IN ('half_released', 'released'))`,
+      [userId]
+    );
+    const grossRevenue = parseFloat(revenueSum.rows[0].total_revenue) || 0.00;
+
+    // 5. Average delivery hours
     const deliveryTimes = await pool.query(
-      `SELECT AVG(EXTRACT(EPOCH FROM (o.updated_at - o.created_at)) / 3600)::DECIMAL(10,2) as avg_hours_to_delivery
+      `SELECT AVG(EXTRACT(EPOCH FROM (o.updated_at - o.created_at)) / 3600)::DECIMAL(10,2) as avg_hours
        FROM orders o
        JOIN listings l ON o.listings_id = l.listing_id
        WHERE l.user_id = $1 AND o.status = 'delivered'`,
       [userId]
     );
+    const avgDeliveryTime = deliveryTimes.rows[0].avg_hours ? `${parseFloat(deliveryTimes.rows[0].avg_hours).toFixed(1)} hrs` : "N/A";
+
+    // 6. Offer acceptance rate
+    const totalOffersRes = await pool.query(
+      `SELECT COUNT(*) FROM orders o JOIN listings l ON o.listings_id = l.listing_id WHERE l.user_id = $1`,
+      [userId]
+    );
+    const acceptedOffersRes = await pool.query(
+      `SELECT COUNT(*) FROM orders o JOIN listings l ON o.listings_id = l.listing_id WHERE l.user_id = $1 AND o.status IN ('accepted', 'escrow_funded', 'ready_for_pickup', 'picked_up', 'delivered')`,
+      [userId]
+    );
+    const totalOffersCount = parseInt(totalOffersRes.rows[0].count) || 0;
+    const acceptedOffersCount = parseInt(acceptedOffersRes.rows[0].count) || 0;
+    const offerAcceptRate = totalOffersCount > 0 ? `${Math.round((acceptedOffersCount / totalOffersCount) * 100)}%` : "100%";
 
     res.json({
-      total_listings: parseInt(listingsCount.rows[0].count),
-      total_revenue: parseFloat(revenueSum.rows[0].total_revenue) || 0.00,
-      average_hours_to_delivery: deliveryTimes.rows[0].avg_hours_to_delivery 
-        ? parseFloat(deliveryTimes.rows[0].avg_hours_to_delivery) 
-        : "N/A"
+      total_listings: totalListings,
+      totalListings: totalListings,
+      active_listings: activeListings,
+      activeListings: activeListings,
+      sold_listings: soldListings,
+      soldListings: soldListings,
+      gross_revenue: grossRevenue,
+      grossRevenue: grossRevenue,
+      total_revenue: grossRevenue,
+      totalRevenue: grossRevenue,
+      average_hours_to_delivery: avgDeliveryTime,
+      avgDeliveryTime: avgDeliveryTime,
+      offer_accept_rate: offerAcceptRate,
+      offerAcceptRate: offerAcceptRate
     });
   } catch (err) {
     console.error("❌ Error fetching farmer analytics:", err.message);

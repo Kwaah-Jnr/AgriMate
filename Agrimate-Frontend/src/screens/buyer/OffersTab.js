@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Card, Button, TextInput } from 'react-native-paper';
 import { api, registerCacheReset } from '../../services/api';
-import { ShoppingBag, Calendar, User, Edit3, Trash2 } from 'lucide-react-native';
+import { ShoppingBag, Calendar, User, Edit3, Trash2, Check, X, TrendingUp } from 'lucide-react-native';
 
 let cachedBuyerOffers = null;
 registerCacheReset(() => { cachedBuyerOffers = null; });
@@ -116,10 +116,43 @@ export default function OffersTab() {
     );
   };
 
+  const handleAcceptCounter = async (offerId) => {
+    setIsLoading(true);
+    try {
+      const updated = await api.acceptBuyerCounterOffer(offerId);
+      setOffers(prev => prev.map(o => String(o.id) === String(offerId) ? { ...o, ...(updated || {}), status: 'accepted', escrowStatus: 'unfunded' } : o));
+      Alert.alert(
+        'Counter-Offer Accepted!',
+        'You have accepted the farmer\'s counter-offer. You can now go to Orders or Payments to fund escrow.'
+      );
+    } catch (error) {
+      console.error('Accept counter error:', error);
+      Alert.alert('Error', error.message || 'Failed to accept counter offer.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeclineCounter = async (offerId) => {
+    setIsLoading(true);
+    try {
+      await api.declineBuyerCounterOffer(offerId);
+      setOffers(prev => prev.map(o => String(o.id) === String(offerId) ? { ...o, status: 'rejected' } : o));
+      Alert.alert('Counter Declined', 'Farmer counter-offer has been declined.');
+    } catch (error) {
+      console.error('Decline counter error:', error);
+      Alert.alert('Error', error.message || 'Failed to decline counter offer.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const getStatusStyle = (status) => {
     switch (status) {
       case 'accepted':
         return styles.statusAccepted;
+      case 'countered':
+        return styles.statusCountered;
       case 'rejected':
         return styles.statusRejected;
       case 'cancelled':
@@ -132,6 +165,7 @@ export default function OffersTab() {
 
   const getStatusText = (status) => {
     if (!status) return 'Pending';
+    if (status === 'countered') return 'Farmer Countered';
     return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
@@ -192,6 +226,37 @@ export default function OffersTab() {
               <Trash2 size={14} color="#EF4444" style={{ marginRight: 6 }} />
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {item.status === 'countered' && (
+          <View style={styles.counterBannerContainer}>
+            <View style={styles.counterHeader}>
+              <TrendingUp size={14} color="#D97706" style={{ marginRight: 6 }} />
+              <Text style={styles.counterTitle}>Farmer Proposed Counter-Offer</Text>
+            </View>
+            <Text style={styles.counterPriceText}>
+              Counter Price: <Text style={styles.counterBold}>GH₵ {parseFloat(item.counter_price || item.counterPrice || item.price).toFixed(2)}/unit</Text> (Total: GH₵ {(parseFloat(item.counter_price || item.counterPrice || item.price) * (Number(item.quantity) || 0)).toFixed(2)})
+            </Text>
+            {item.note ? <Text style={styles.counterNoteText}>Farmer Note: "{item.note}"</Text> : null}
+
+            <View style={styles.cardActions}>
+              <TouchableOpacity 
+                style={[styles.actionBtn, styles.acceptCounterBtn]} 
+                onPress={() => handleAcceptCounter(item.id)}
+              >
+                <Check size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.acceptCounterText}>Accept Counter (GH₵ {parseFloat(item.counter_price || item.counterPrice || item.price).toFixed(2)})</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.actionBtn, styles.cancelBtn]} 
+                onPress={() => handleDeclineCounter(item.id)}
+              >
+                <X size={14} color="#EF4444" style={{ marginRight: 6 }} />
+                <Text style={styles.cancelBtnText}>Decline</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </Card.Content>
@@ -346,6 +411,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#ECFDF5',
     color: '#059669',
   },
+  statusCountered: {
+    backgroundColor: '#FEF3C7',
+    color: '#D97706',
+  },
   statusRejected: {
     backgroundColor: '#FEF2F2',
     color: '#EF4444',
@@ -353,6 +422,48 @@ const styles = StyleSheet.create({
   statusCancelled: {
     backgroundColor: '#F8FAFC',
     color: '#64748B',
+  },
+  counterBannerContainer: {
+    marginTop: 12,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 10,
+  },
+  counterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  counterTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D97706',
+  },
+  counterPriceText: {
+    fontSize: 12,
+    color: '#92400E',
+    marginTop: 2,
+  },
+  counterBold: {
+    fontWeight: '800',
+    color: '#D97706',
+  },
+  counterNoteText: {
+    fontSize: 11,
+    color: '#B45309',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  acceptCounterBtn: {
+    backgroundColor: '#059669',
+    borderColor: '#059669',
+  },
+  acceptCounterText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   infoRow: {
     flexDirection: 'row',

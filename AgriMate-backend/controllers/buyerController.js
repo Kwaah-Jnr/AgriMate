@@ -272,6 +272,148 @@ exports.getOwnOrders = async (req, res) => {
   }
 };
 
+exports.acceptCounterOffer = async (req, res) => {
+  const orderId = req.params.id;
+  const buyerId = req.user.user_id;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify order ownership
+    const check = await client.query(
+      `SELECT o.*, l.user_id as farmer_id 
+       FROM orders o 
+       JOIN listings l ON o.listings_id = l.listing_id 
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    if (check.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Order not found." });
+    }
+    const order = check.rows[0];
+
+    if (order.buyer_id !== buyerId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden. You do not own this order." });
+    }
+
+    if (order.status !== "countered" || !order.counter_price) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ error: `Cannot accept counter-offer for order in '${order.status}' state.` });
+    }
+
+    const acceptedPrice = parseFloat(order.counter_price);
+
+    // 1. Accept order with counter price & set escrow_status = unfunded
+    await client.query(
+      "UPDATE orders SET status = 'accepted', price = $1, escrow_status = 'unfunded', delivery_status = 'pending', updated_at = NOW() WHERE order_id = $2",
+      [acceptedPrice, orderId]
+    );
+
+    // 2. Fetch current listing & deduct quantity
+    const listingCheck = await client.query("SELECT * FROM listings WHERE listing_id = $1 FOR UPDATE", [order.listings_id]);
+    if (listingCheck.rows.length > 0) {
+      const listing = listingCheck.rows[0];
+      const currentQty = parseInt(listing.quantity) || 0;
+      const orderQty = parseInt(order.quantity) || 0;
+      const remainingQty = Math.max(0, currentQty - orderQty);
+
+      if (remainingQty > 0) {
+        await client.query(
+          "UPDATE listings SET quantity = $1, status = 'open' WHERE listing_id = $2",
+          [remainingQty, order.listings_id]
+        );
+      } else {
+        await client.query(
+          "UPDATE listings SET quantity = 0, status = 'accepted' WHERE listing_id = $1",
+          [order.listings_id]
+        );
+      }
+    }
+
+    // 3. Update farmer wallet escrow tracking
+    const orderTotal = acceptedPrice * parseInt(order.quantity);
+    const farmerWallet = await getOrCreateWallet(client, order.farmer_id);
+    const newFarmerEscrow = parseFloat(farmerWallet.escrow_balance) + orderTotal;
+    await client.query("UPDATE wallets SET escrow_balance = $1, updated_at = NOW() WHERE user_id = $2", [newFarmerEscrow, order.farmer_id]);
+
+    // 4. Create record in payments table
+    await client.query(
+      `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
+       VALUES ($1, $2, $3, 'escrow_lock', 'pending', $4)`,
+      [orderId, buyerId, orderTotal, `Escrow of ${orderTotal} GHS accepted at counter-price of ${acceptedPrice} GHS/unit, pending funding.`]
+    );
+
+    await logHistory(client, buyerId, "counter_accepted", orderId, `Buyer accepted farmer counter-offer of ${acceptedPrice} GHS/unit for order ID ${orderId}`);
+
+    await client.query("COMMIT");
+
+    const updatedOrder = await client.query(
+      `SELECT o.*, l.crop_name, l.location as listing_location, l.grade, u.username as farmer_name 
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON l.user_id = u.user_id
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    res.json(updatedOrder.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error accepting counter-offer:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+exports.declineCounterOffer = async (req, res) => {
+  const orderId = req.params.id;
+  const buyerId = req.user.user_id;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const check = await client.query("SELECT * FROM orders WHERE order_id = $1", [orderId]);
+    if (check.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Order not found." });
+    }
+    const order = check.rows[0];
+
+    if (order.buyer_id !== buyerId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ error: "Forbidden. You do not own this order." });
+    }
+
+    await client.query("UPDATE orders SET status = 'rejected', updated_at = NOW() WHERE order_id = $1", [orderId]);
+    await logHistory(client, buyerId, "counter_declined", orderId, `Buyer declined farmer counter-offer for order ID ${orderId}`);
+
+    await client.query("COMMIT");
+
+    const updatedOrder = await client.query(
+      `SELECT o.*, l.crop_name, l.location as listing_location, l.grade, u.username as farmer_name 
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users u ON l.user_id = u.user_id
+       WHERE o.order_id = $1`,
+      [orderId]
+    );
+
+    res.json(updatedOrder.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error declining counter-offer:", err.message);
+    res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+};
+
 /* ==========================================================================
    3. Payments & Escrow
    ========================================================================== */
@@ -313,7 +455,26 @@ exports.fundEscrow = async (req, res) => {
 
     const orderTotal = parseFloat(order.price) * parseInt(order.quantity);
 
-    // 1. Update payments table record (confirm the lock)
+    // 1. Deduct orderTotal from buyer's settled balance in wallets table
+    const buyerWallet = await getOrCreateWallet(client, buyerId);
+    const currentBuyerBalance = parseFloat(buyerWallet.balance);
+    if (currentBuyerBalance < orderTotal) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ 
+        error: `Insufficient wallet balance (GH₵ ${currentBuyerBalance.toFixed(2)}) to fund this contract (GH₵ ${orderTotal.toFixed(2)}). Please deposit funds first.` 
+      });
+    }
+
+    const newBuyerBalance = currentBuyerBalance - orderTotal;
+    const initialEscrowLocked = order.status === 'ready_for_pickup' ? orderTotal * 0.5 : orderTotal;
+    const newBuyerEscrow = parseFloat(buyerWallet.escrow_balance) + initialEscrowLocked;
+
+    await client.query(
+      "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
+      [newBuyerBalance, newBuyerEscrow, buyerId]
+    );
+
+    // 2. Update payments table record (confirm the lock)
     await client.query(
       `UPDATE payments 
        SET status = 'confirmed', confirmed_at = NOW(), description = $1 
@@ -321,7 +482,7 @@ exports.fundEscrow = async (req, res) => {
       [`Escrow funded via MoMo transaction ${transaction_id}.`, orderId]
     );
 
-    // 2. Create a wallet_transactions record for the buyer's escrow funding
+    // 3. Create a wallet_transactions record for the buyer's escrow funding
     await client.query(
       `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
        VALUES ($1, 'escrow', $2, 'success', $3)`,
@@ -435,6 +596,42 @@ exports.releaseEscrow = async (req, res) => {
       "UPDATE wallets SET balance = $1, escrow_balance = $2, updated_at = NOW() WHERE user_id = $3",
       [newFarmerBalance, newFarmerEscrow, farmerId]
     );
+
+    // 1b. Decrement buyer's escrow balance by remaining release amount
+    const buyerWallet = await getOrCreateWallet(client, buyerId);
+    const newBuyerEscrow = Math.max(0, parseFloat(buyerWallet.escrow_balance) - releaseAmount);
+    await client.query(
+      "UPDATE wallets SET escrow_balance = $1, updated_at = NOW() WHERE user_id = $2",
+      [newBuyerEscrow, buyerId]
+    );
+
+    // 1c. Complete assigned transporter job (if any) and credit transporter payout
+    const jobRes = await client.query("SELECT * FROM jobs WHERE order_id = $1 AND status != 'cancelled'", [orderId]);
+    if (jobRes.rows.length > 0) {
+      const job = jobRes.rows[0];
+      if (job.transporter_id && job.status !== 'delivered') {
+        // Mark job as delivered
+        await client.query("UPDATE jobs SET status = 'delivered', updated_at = NOW() WHERE job_id = $1", [job.job_id]);
+
+        // Credit transporter payout
+        const transPayout = parseFloat(job.payout) || parseFloat(job.flat_fee) || 100.00;
+        const transWallet = await getOrCreateWallet(client, job.transporter_id);
+        const newTransBalance = parseFloat(transWallet.balance) + transPayout;
+        await client.query(
+          "UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2",
+          [newTransBalance, job.transporter_id]
+        );
+
+        // Create wallet transaction record for transporter
+        await client.query(
+          `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+           VALUES ($1, 'deposit', $2, 'success', $3)`,
+          [job.transporter_id, transPayout, `Logistics payout received for job ID ${job.job_id}.`]
+        );
+
+        await logHistory(client, job.transporter_id, "payout_received", job.job_id, `Received payout of ${transPayout} GHS for completed delivery of order ID ${orderId}`);
+      }
+    }
 
     // 2. Update order to fully released and completed
     await client.query(
@@ -693,30 +890,59 @@ exports.getAnalytics = async (req, res) => {
   try {
     // 1. Total offers placed by buyer
     const offersCount = await pool.query("SELECT COUNT(*) FROM orders WHERE buyer_id = $1", [buyerId]);
+    const totalOffers = parseInt(offersCount.rows[0].count) || 0;
 
-    // 2. Average bid acceptance rate (ratio of accepted/ready_for_pickup/delivered orders to total placed)
-    const totalOffers = parseInt(offersCount.rows[0].count);
-    let acceptanceRate = "0.0%";
-    if (totalOffers > 0) {
-      const acceptedOffers = await pool.query(
-        "SELECT COUNT(*) FROM orders WHERE buyer_id = $1 AND status IN ('accepted', 'escrow_funded', 'ready_for_pickup', 'picked_up', 'delivered', 'disputed')",
-        [buyerId]
-      );
-      acceptanceRate = ((parseInt(acceptedOffers.rows[0].count) / totalOffers) * 100).toFixed(1) + "%";
-    }
+    // 2. Total orders confirmed/accepted
+    const ordersCount = await pool.query(
+      "SELECT COUNT(*) FROM orders WHERE buyer_id = $1 AND status IN ('accepted', 'escrow_funded', 'ready_for_pickup', 'picked_up', 'delivered')",
+      [buyerId]
+    );
+    const totalOrders = parseInt(ordersCount.rows[0].count) || 0;
 
-    // 3. Escrow volume (Total GHS locked in active/completed trades)
-    const escrowVolume = await pool.query(
-      `SELECT SUM(price * quantity)::DECIMAL(12,2) as total_escrow
+    // 3. Wallet active escrow & total settled spend
+    const walletRes = await pool.query("SELECT balance, escrow_balance FROM wallets WHERE user_id = $1", [buyerId]);
+    const activeEscrow = walletRes.rows.length > 0 ? parseFloat(walletRes.rows[0].escrow_balance) || 0.00 : 0.00;
+
+    const spentRes = await pool.query(
+      `SELECT COALESCE(SUM(price * quantity), 0)::DECIMAL(12,2) as total_spent
        FROM orders
-       WHERE buyer_id = $1 AND status IN ('escrow_funded', 'ready_for_pickup', 'picked_up', 'delivered', 'disputed')`,
+       WHERE buyer_id = $1 AND (status = 'delivered' OR escrow_status IN ('half_released', 'released'))`,
+      [buyerId]
+    );
+    const totalSpent = parseFloat(spentRes.rows[0].total_spent) || 0.00;
+
+    // 4. Spend distribution by crop category
+    const cropSpendRes = await pool.query(
+      `SELECT l.crop_name, SUM(o.price * o.quantity)::DECIMAL(12,2) as crop_total
+       FROM orders o
+       JOIN listings l ON o.listings_id = l.listing_id
+       WHERE o.buyer_id = $1 AND o.status IN ('accepted', 'escrow_funded', 'ready_for_pickup', 'picked_up', 'delivered')
+       GROUP BY l.crop_name`,
       [buyerId]
     );
 
+    const categorySpend = {};
+    cropSpendRes.rows.forEach(row => {
+      categorySpend[row.crop_name] = parseFloat(row.crop_total) || 0.00;
+    });
+
+    let acceptanceRate = "0.0%";
+    if (totalOffers > 0) {
+      acceptanceRate = ((totalOrders / totalOffers) * 100).toFixed(1) + "%";
+    }
+
     res.json({
+      totalOffers,
       total_offers: totalOffers,
+      totalOrders,
+      total_orders: totalOrders,
+      totalSpent: totalSpent.toFixed(2),
+      total_spent: totalSpent,
+      activeEscrow: activeEscrow.toFixed(2),
+      active_escrow: activeEscrow,
       bid_acceptance_rate: acceptanceRate,
-      total_escrow_funded: parseFloat(escrowVolume.rows[0].total_escrow) || 0.00
+      categorySpend,
+      category_spend: categorySpend
     });
   } catch (err) {
     console.error("❌ Error fetching buyer analytics:", err.message);
@@ -1105,6 +1331,65 @@ exports.depositFunds = async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("❌ Error depositing funds:", err.message);
+    res.status(500).json({ error: "Internal server error: " + err.message });
+  } finally {
+    client.release();
+  }
+};
+
+exports.withdrawFunds = async (req, res) => {
+  const userId = req.user.user_id;
+  const { amount, phone, momo_number, momoNumber, provider } = req.body;
+  const targetPhone = phone || momo_number || momoNumber;
+
+  const withdrawAmount = parseFloat(amount);
+  if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+    return res.status(400).json({ error: "Invalid withdrawal amount." });
+  }
+  if (!targetPhone) {
+    return res.status(400).json({ error: "Mobile Money phone number is required for withdrawal." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const wallet = await getOrCreateWallet(client, userId);
+    const balance = parseFloat(wallet.balance);
+
+    if (balance < withdrawAmount) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: `Insufficient settled balance (GH₵ ${balance.toFixed(2)}) for withdrawal of GH₵ ${withdrawAmount.toFixed(2)}.`
+      });
+    }
+
+    const newBalance = balance - withdrawAmount;
+    await client.query(
+      "UPDATE wallets SET balance = $1, updated_at = NOW() WHERE user_id = $2",
+      [newBalance, userId]
+    );
+
+    const txResult = await client.query(
+      `INSERT INTO wallet_transactions (user_id, type, amount, status, description) 
+       VALUES ($1, 'withdrawal', $2, 'success', $3) RETURNING *`,
+      [userId, withdrawAmount, `Withdrawal via ${provider || 'MoMo'} (${targetPhone})`]
+    );
+
+    await logHistory(client, userId, "wallet_withdrawal", wallet.wallet_id, `Withdrew ${withdrawAmount} GHS via MoMo`);
+
+    await client.query("COMMIT");
+    res.json({
+      message: "Withdrawal successful.",
+      balance: {
+        settled: newBalance,
+        escrow: parseFloat(wallet.escrow_balance) || 0.00
+      },
+      transaction: txResult.rows[0]
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Error withdrawing funds:", err.message);
     res.status(500).json({ error: "Internal server error: " + err.message });
   } finally {
     client.release();

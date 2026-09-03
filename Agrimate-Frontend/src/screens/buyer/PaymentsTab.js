@@ -1,4 +1,3 @@
-// src/screens/buyer/PaymentsTab.js
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -10,40 +9,54 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { Card, TextInput, Button } from 'react-native-paper';
 import { api } from '../../services/api';
 import { Wallet, Calendar, ArrowUpRight, ArrowDownLeft, Lock, Plus, X } from 'lucide-react-native';
 
-export default function PaymentsTab() {
+export default function PaymentsTab({ isActive }) {
   const [payments, setPayments] = useState([]);
   const [balance, setBalance] = useState({ settled: 0, escrow: 0 });
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Deposit Form State
-  const [modalVisible, setModalVisible] = useState(false);
+  const [depositModalVisible, setDepositModalVisible] = useState(false);
   const [depositAmount, setDepositAmount] = useState('');
-  const [momoNumber, setMomoNumber] = useState('');
-  const [provider, setProvider] = useState('MTN');
+  const [depositMomoNumber, setDepositMomoNumber] = useState('');
+  const [depositProvider, setDepositProvider] = useState('MTN');
   const [isDepositLoading, setIsDepositLoading] = useState(false);
 
-  const loadPaymentsAndBalance = async () => {
-    setIsLoading(true);
+  // Withdraw Form State
+  const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawMomoNumber, setWithdrawMomoNumber] = useState('');
+  const [withdrawProvider, setWithdrawProvider] = useState('MTN');
+  const [isWithdrawLoading, setIsWithdrawLoading] = useState(false);
+
+  const loadPaymentsAndBalance = async (showRefIndicator = false) => {
+    if (showRefIndicator) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     try {
       const [paymentsData, summaryData] = await Promise.all([
         api.fetchBuyerPayments(),
         api.fetchBuyerDashboardSummary()
       ]);
-      setPayments(paymentsData);
+      setPayments(Array.isArray(paymentsData) ? paymentsData : []);
       setBalance({
-        settled: summaryData.settledBalance || 0,
-        escrow: summaryData.escrowBalance || 0
+        settled: summaryData?.settledBalance || 0,
+        escrow: summaryData?.escrowBalance || 0
       });
     } catch (error) {
       console.error('Error fetching buyer wallet data:', error);
       Alert.alert('Error', 'Failed to retrieve wallet information.');
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -51,12 +64,18 @@ export default function PaymentsTab() {
     loadPaymentsAndBalance();
   }, []);
 
+  useEffect(() => {
+    if (isActive) {
+      loadPaymentsAndBalance(true);
+    }
+  }, [isActive]);
+
   const handleDeposit = async () => {
     if (!depositAmount || isNaN(depositAmount) || parseFloat(depositAmount) <= 0) {
       Alert.alert('Validation Error', 'Please enter a valid deposit amount.');
       return;
     }
-    if (!momoNumber || momoNumber.length < 9) {
+    if (!depositMomoNumber || depositMomoNumber.length < 9) {
       Alert.alert('Validation Error', 'Please enter a valid Mobile Money number.');
       return;
     }
@@ -65,22 +84,21 @@ export default function PaymentsTab() {
     try {
       const data = await api.depositBuyerWallet(
         parseFloat(depositAmount),
-        momoNumber,
-        provider
+        depositMomoNumber,
+        depositProvider
       );
       setBalance({
         settled: data.balance.settled,
         escrow: data.balance.escrow
       });
       
-      // Refresh payment logs list
       const paymentsData = await api.fetchBuyerPayments();
       setPayments(paymentsData);
 
       Alert.alert('Success', `Successfully deposited GH₵${parseFloat(depositAmount).toFixed(2)} into your wallet.`);
-      setModalVisible(false);
+      setDepositModalVisible(false);
       setDepositAmount('');
-      setMomoNumber('');
+      setDepositMomoNumber('');
     } catch (error) {
       Alert.alert('Deposit Failed', error.message || 'Mobile money transaction was declined.');
     } finally {
@@ -88,13 +106,56 @@ export default function PaymentsTab() {
     }
   };
 
+  const handleWithdraw = async () => {
+    const amountNum = parseFloat(withdrawAmount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      Alert.alert('Validation Error', 'Please enter a valid withdrawal amount.');
+      return;
+    }
+    if (amountNum > balance.settled) {
+      Alert.alert('Validation Error', `Insufficient settled balance (GH₵ ${(balance.settled || 0).toFixed(2)}) for withdrawal.`);
+      return;
+    }
+    if (!withdrawMomoNumber || withdrawMomoNumber.length < 9) {
+      Alert.alert('Validation Error', 'Please enter a valid Mobile Money phone number.');
+      return;
+    }
+
+    setIsWithdrawLoading(true);
+    try {
+      const data = await api.withdrawBuyerWallet(
+        amountNum,
+        withdrawMomoNumber,
+        withdrawProvider
+      );
+      setBalance({
+        settled: data.balance.settled,
+        escrow: data.balance.escrow
+      });
+      
+      const paymentsData = await api.fetchBuyerPayments();
+      setPayments(paymentsData);
+
+      Alert.alert('Success', `Successfully withdrew GH₵ ${amountNum.toFixed(2)} to ${withdrawProvider} MoMo (${withdrawMomoNumber}).`);
+      setWithdrawModalVisible(false);
+      setWithdrawAmount('');
+      setWithdrawMomoNumber('');
+    } catch (error) {
+      Alert.alert('Withdrawal Failed', error.message || 'Mobile money withdrawal request failed.');
+    } finally {
+      setIsWithdrawLoading(false);
+    }
+  };
+
   const getTypeStyle = (type) => {
-    if (type === 'deposit') return styles.escrowRelease; // Green for deposit
+    if (type === 'deposit') return styles.escrowRelease;
+    if (type === 'withdrawal') return styles.escrowLock;
     return type === 'escrow_lock' ? styles.escrowLock : styles.escrowRelease;
   };
 
   const getTypeText = (type) => {
     if (type === 'deposit') return 'Momo Deposit';
+    if (type === 'withdrawal') return 'Momo Withdrawal';
     return type === 'escrow_lock' ? 'Escrow Funded' : 'Escrow Released';
   };
 
@@ -103,7 +164,7 @@ export default function PaymentsTab() {
       <Card.Content style={styles.cardContent}>
         <View style={styles.leftCol}>
           <View style={[styles.iconBox, getTypeStyle(item.type)]}>
-            {item.type === 'escrow_lock' ? (
+            {item.type === 'escrow_lock' || item.type === 'withdrawal' ? (
               <ArrowUpRight size={16} color="#EF4444" />
             ) : (
               <ArrowDownLeft size={16} color="#16A34A" />
@@ -120,8 +181,8 @@ export default function PaymentsTab() {
         </View>
 
         <View style={styles.rightCol}>
-          <Text style={[styles.amountText, { color: item.type === 'escrow_lock' ? '#EF4444' : '#16A34A' }]}>
-            {item.type === 'escrow_lock' ? '-' : '+'} GH₵ {(Number(item.amount) || 0).toFixed(2)}
+          <Text style={[styles.amountText, { color: item.type === 'escrow_lock' || item.type === 'withdrawal' ? '#EF4444' : '#16A34A' }]}>
+            {item.type === 'escrow_lock' || item.type === 'withdrawal' ? '-' : '+'} GH₵ {(Number(item.amount) || 0).toFixed(2)}
           </Text>
           <Text style={styles.statusLabel}>{getTypeText(item.type)}</Text>
         </View>
@@ -147,7 +208,7 @@ export default function PaymentsTab() {
             <Text style={styles.balanceLabel}>Settled Balance</Text>
           </View>
           <Text style={styles.settledAmount}>GH₵{(Number(balance?.settled) || 0).toFixed(2)}</Text>
-          <Text style={styles.balanceSubtext}>Available to fund bids</Text>
+          <Text style={styles.balanceSubtext}>Available to fund bids / withdraw</Text>
         </View>
 
         <View style={styles.balanceDivider} />
@@ -162,18 +223,24 @@ export default function PaymentsTab() {
         </View>
       </View>
 
-      {/* Deposit Action */}
-      <Button
-        mode="contained"
-        buttonColor="#12372A"
-        textColor="#FFFFFF"
-        icon={() => <Plus size={16} color="#FFFFFF" />}
-        onPress={() => setModalVisible(true)}
-        style={styles.depositBtn}
-        labelStyle={styles.depositBtnLabel}
-      >
-        Deposit Funds (Mobile Money)
-      </Button>
+      {/* Deposit & Withdraw Action Buttons */}
+      <View style={styles.actionBtnRow}>
+        <TouchableOpacity 
+          style={[styles.walletActionBtn, styles.depositActionBtn]}
+          onPress={() => setDepositModalVisible(true)}
+        >
+          <Plus size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+          <Text style={styles.depositActionBtnText}>Deposit Funds</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={[styles.walletActionBtn, styles.withdrawActionBtn]}
+          onPress={() => setWithdrawModalVisible(true)}
+        >
+          <ArrowUpRight size={16} color="#12372A" style={{ marginRight: 6 }} />
+          <Text style={styles.withdrawActionBtnText}>Withdraw Funds</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Logs Section */}
       <Text style={styles.sectionTitle}>Payment & Escrow Logs</Text>
@@ -182,6 +249,9 @@ export default function PaymentsTab() {
         <View style={styles.emptyContainer}>
           <Wallet size={48} color="#CBD5E1" />
           <Text style={styles.emptyText}>No payments history found.</Text>
+          <TouchableOpacity style={styles.refreshBtn} onPress={() => loadPaymentsAndBalance(true)}>
+            <Text style={styles.refreshBtnText}>Pull to Refresh</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -190,6 +260,13 @@ export default function PaymentsTab() {
           keyExtractor={(item, index) => String(item.id || item.paymentId || item.payment_id || index)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={() => loadPaymentsAndBalance(true)}
+              colors={['#12372A']}
+            />
+          }
         />
       )}
 
@@ -197,14 +274,14 @@ export default function PaymentsTab() {
       <Modal
         animationType="slide"
         transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        visible={depositModalVisible}
+        onRequestClose={() => setDepositModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Mobile Money Deposit</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <TouchableOpacity onPress={() => setDepositModalVisible(false)}>
                 <X size={20} color="#64748B" />
               </TouchableOpacity>
             </View>
@@ -222,10 +299,10 @@ export default function PaymentsTab() {
                   {['MTN', 'AirtelTigo', 'Telecel'].map((prov) => (
                     <TouchableOpacity
                       key={prov}
-                      style={[styles.segment, provider === prov && styles.segmentActive]}
-                      onPress={() => setProvider(prov)}
+                      style={[styles.segment, depositProvider === prov && styles.segmentActive]}
+                      onPress={() => setDepositProvider(prov)}
                     >
-                      <Text style={[styles.segmentText, provider === prov && styles.segmentTextActive]}>
+                      <Text style={[styles.segmentText, depositProvider === prov && styles.segmentTextActive]}>
                         {prov}
                       </Text>
                     </TouchableOpacity>
@@ -236,8 +313,8 @@ export default function PaymentsTab() {
               <TextInput
                 label="Mobile Money Number"
                 placeholder="e.g., 054XXXXXXX"
-                value={momoNumber}
-                onChangeText={momo => setMomoNumber(momo.replace(/[^0-9]/g, ''))}
+                value={depositMomoNumber}
+                onChangeText={momo => setDepositMomoNumber(momo.replace(/[^0-9]/g, ''))}
                 mode="outlined"
                 keyboardType="phone-pad"
                 activeOutlineColor="#12372A"
@@ -265,6 +342,84 @@ export default function PaymentsTab() {
                 onPress={handleDeposit}
               >
                 Confirm Deposit
+              </Button>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Withdraw Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={withdrawModalVisible}
+        onRequestClose={() => setWithdrawModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Mobile Money Withdrawal</Text>
+              <TouchableOpacity onPress={() => setWithdrawModalVisible(false)}>
+                <X size={20} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.modalForm} keyboardShouldPersistTaps="handled">
+              <View style={[styles.infoBanner, { backgroundColor: '#FEF3C7' }]}>
+                <Text style={[styles.infoBannerText, { color: '#92400E' }]}>
+                  Withdraw funds from your Settled Balance (GH₵{(Number(balance?.settled) || 0).toFixed(2)}) back to your Mobile Money account.
+                </Text>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Select Network Provider</Text>
+                <View style={styles.segmentedContainer}>
+                  {['MTN', 'AirtelTigo', 'Telecel'].map((prov) => (
+                    <TouchableOpacity
+                      key={prov}
+                      style={[styles.segment, withdrawProvider === prov && styles.segmentActive]}
+                      onPress={() => setWithdrawProvider(prov)}
+                    >
+                      <Text style={[styles.segmentText, withdrawProvider === prov && styles.segmentTextActive]}>
+                        {prov}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <TextInput
+                label="Mobile Money Number"
+                placeholder="e.g., 054XXXXXXX"
+                value={withdrawMomoNumber}
+                onChangeText={momo => setWithdrawMomoNumber(momo.replace(/[^0-9]/g, ''))}
+                mode="outlined"
+                keyboardType="phone-pad"
+                activeOutlineColor="#12372A"
+                style={styles.modalInput}
+              />
+
+              <TextInput
+                label="Withdrawal Amount (GH₵)"
+                placeholder="e.g., 200"
+                value={withdrawAmount}
+                onChangeText={setWithdrawAmount}
+                mode="outlined"
+                keyboardType="numeric"
+                activeOutlineColor="#12372A"
+                style={styles.modalInput}
+              />
+
+              <Button
+                mode="contained"
+                buttonColor="#12372A"
+                textColor="#FFFFFF"
+                loading={isWithdrawLoading}
+                disabled={isWithdrawLoading}
+                style={styles.submitBtn}
+                onPress={handleWithdraw}
+              >
+                Confirm Withdrawal
               </Button>
             </ScrollView>
           </View>
@@ -326,13 +481,36 @@ const styles = StyleSheet.create({
     height: '80%',
     alignSelf: 'center',
   },
-  depositBtn: {
+  actionBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
     marginBottom: 16,
+  },
+  walletActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
     borderRadius: 6,
   },
-  depositBtnLabel: {
+  depositActionBtn: {
+    backgroundColor: '#12372A',
+  },
+  depositActionBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
     fontSize: 13,
-    fontWeight: '600',
+  },
+  withdrawActionBtn: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  withdrawActionBtnText: {
+    color: '#12372A',
+    fontWeight: '700',
+    fontSize: 13,
   },
   sectionTitle: {
     fontSize: 12,
@@ -515,5 +693,19 @@ const styles = StyleSheet.create({
     marginTop: 8,
     borderRadius: 6,
     paddingVertical: 4,
+  },
+  refreshBtn: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 8,
+  },
+  refreshBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#12372A',
   },
 });

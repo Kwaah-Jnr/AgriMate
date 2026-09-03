@@ -20,6 +20,8 @@ router.post("/offers", buyerController.placeOffer);
 router.get("/offers", buyerController.getBuyerOffers);
 router.put("/offers/:id", buyerController.updateOffer);
 router.delete("/offers/:id", buyerController.cancelOffer);
+router.post("/offers/:id/accept-counter", buyerController.acceptCounterOffer);
+router.post("/offers/:id/decline-counter", buyerController.declineCounterOffer);
 router.get("/orders", buyerController.getOwnOrders);
 router.get("/orders/:id/location", buyerController.getOrderLocation);
 
@@ -30,6 +32,7 @@ router.post("/orders/:id/fund", buyerController.fundEscrow);
 router.post("/orders/:id/release", buyerController.releaseEscrow); // B18 fix: was missing, causing 404 on Confirm & Release
 router.get("/payments", buyerController.getPaymentHistory);
 router.post("/wallet/deposit", buyerController.depositFunds);
+router.post("/wallet/withdraw", buyerController.withdrawFunds);
 
 /* ==========================================================================
    4. Ratings & Reputation Routes

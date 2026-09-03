@@ -111,7 +111,18 @@ async function runTests() {
     });
     const transporterLoginData = await transporterLoginRes.json();
     transporterToken = transporterLoginData.token;
-    console.log(`✅ Transporter Logged In (JWT obtained)\n`);
+    console.log(`✅ Transporter Logged In (JWT obtained)`);
+
+    // Fund Buyer Wallet for tests
+    await fetch(`${BASE_URL}/api/buyer/wallet/deposit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${buyerToken}`
+      },
+      body: JSON.stringify({ amount: 10000.00, momoNumber: '0240000000', provider: 'MTN' })
+    });
+    console.log(`💳 Initialized Buyer Wallet Balance (10,000.00 GHS)\n`);
 
     // -------------------------------------------------------------
     // FLOW 1: Main Transporter Split-Escrow Handoff Flow
@@ -480,8 +491,8 @@ async function runTests() {
     }
 
     const buyerWallet = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [buyerId]);
-    console.log(`💳 Buyer Wallet: Balance = ${buyerWallet.rows[0].balance} GHS (Expected: 500.00 refund)`);
-    if (parseFloat(buyerWallet.rows[0].balance) !== 500.00) throw new Error('Buyer wallet was not credited with the refunded amount!');
+    console.log(`💳 Buyer Wallet: Balance = ${buyerWallet.rows[0].balance} GHS (Expected: 8700.00 after refund)`);
+    if (parseFloat(buyerWallet.rows[0].balance) !== 8700.00) throw new Error('Buyer wallet was not credited with the refunded amount!');
     console.log(`✅ Dispute and refund verification succeeded!\n`);
 
     console.log('🎉 ALL INTEGRATION TESTS PASSED SUCCESSFULLY! The JWT Auth, Escrow splits, Self-pickup, and Dispute Resolution flows are fully correct.');

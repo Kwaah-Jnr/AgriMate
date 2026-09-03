@@ -22,6 +22,7 @@ router.get("/market-insights", farmerController.getMarketInsights);
 router.get("/offers", farmerController.getOffers);
 router.post("/offers/:id/accept", farmerController.acceptOffer);
 router.post("/offers/:id/reject", farmerController.rejectOffer);
+router.post("/offers/:id/counter", farmerController.counterOffer);
 router.post("/orders/:id/fulfill", farmerController.fulfillOrder);
 router.get("/orders/:id/location", farmerController.getOrderLocation);
 

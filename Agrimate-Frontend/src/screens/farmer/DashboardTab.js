@@ -22,7 +22,7 @@ import {
   TrendingUp,
 } from 'lucide-react-native';
 
-export default function DashboardTab({ user, onNavigate }) {
+export default function DashboardTab({ user, onNavigate, isActive }) {
   const [summary, setSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -51,6 +51,12 @@ export default function DashboardTab({ user, onNavigate }) {
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  useEffect(() => {
+    if (isActive) {
+      fetchDashboardData(true);
+    }
+  }, [isActive]);
 
   if (isLoading && !summary) {
     return (

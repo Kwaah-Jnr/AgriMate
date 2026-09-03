@@ -205,7 +205,7 @@ export default function LoginScreen({ navigation }) {
                   }}
                   disabled={isLoading}
                 >
-                  <Image source={require('../../assets/google_logo.png')} style={styles.socialLogoImage} />
+                  <AntDesign name="google" size={18} color="#4285F4" style={styles.socialIcon} />
                   <Text style={styles.googleButtonText}>Sign in with Google</Text>
                 </TouchableOpacity>
 

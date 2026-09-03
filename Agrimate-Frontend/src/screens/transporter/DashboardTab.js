@@ -21,7 +21,7 @@ import {
   Clock,
 } from 'lucide-react-native';
 
-export default function DashboardTab({ user, onNavigate }) {
+export default function DashboardTab({ user, onNavigate, isActive }) {
   const [summary, setSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -52,6 +52,12 @@ export default function DashboardTab({ user, onNavigate }) {
     fetchDashboardData();
   }, []);
 
+  useEffect(() => {
+    if (isActive) {
+      fetchDashboardData(true);
+    }
+  }, [isActive]);
+
   if (isLoading && !summary) {
     return (
       <View style={styles.loaderContainer}>
@@ -59,6 +65,9 @@ export default function DashboardTab({ user, onNavigate }) {
       </View>
     );
   }
+
+  const settledBalanceVal = summary?.settledBalance ?? summary?.totalEarnings ?? summary?.total_earnings ?? 0;
+  const formattedBalance = (Number(settledBalanceVal) || 0).toFixed(2);
 
   return (
     <ScrollView 
@@ -123,7 +132,7 @@ export default function DashboardTab({ user, onNavigate }) {
           <View style={[styles.iconBox, { backgroundColor: '#FFFBEB' }]}>
             <Wallet size={16} color="#D97706" />
           </View>
-          <Text style={styles.statValue}>GH₵ {summary?.settledBalance || 0}</Text>
+          <Text style={styles.statValue}>GH₵ {formattedBalance}</Text>
           <Text style={styles.statLabel}>Wallet Balance</Text>
           <View style={styles.cardArrow}>
             <ArrowRight size={12} color="#94A3B8" />

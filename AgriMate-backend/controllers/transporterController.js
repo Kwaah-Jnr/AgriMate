@@ -227,6 +227,14 @@ exports.confirmPickup = async (req, res) => {
         [newFarmerBalance, newFarmerEscrow, farmerId]
       );
 
+      // Decrement buyer's escrow balance
+      const buyerWallet = await getOrCreateWallet(client, order.buyer_id);
+      const newBuyerEscrow = Math.max(0, parseFloat(buyerWallet.escrow_balance) - releaseAmount);
+      await client.query(
+        "UPDATE wallets SET escrow_balance = $1, updated_at = NOW() WHERE user_id = $2",
+        [newBuyerEscrow, order.buyer_id]
+      );
+
       // Update order status, escrow_status = half_released, delivery_status = transit
       await client.query(
         "UPDATE orders SET status = 'picked_up', escrow_status = 'half_released', delivery_status = 'transit', updated_at = NOW() WHERE order_id = $1",
@@ -352,6 +360,14 @@ exports.confirmDelivery = async (req, res) => {
         [newFarmerBalance, newFarmerEscrow, farmerId]
       );
 
+      // Decrement buyer's escrow balance
+      const buyerWallet = await getOrCreateWallet(client, order.buyer_id);
+      const newBuyerEscrow = Math.max(0, parseFloat(buyerWallet.escrow_balance) - releaseAmount);
+      await client.query(
+        "UPDATE wallets SET escrow_balance = $1, updated_at = NOW() WHERE user_id = $2",
+        [newBuyerEscrow, order.buyer_id]
+      );
+
       // Create release payments record
       await client.query(
         `INSERT INTO payments (order_id, buyer_id, amount, type, status, description) 
@@ -408,11 +424,18 @@ exports.getEarnings = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT j.job_id, j.distance_km, j.payout, j.updated_at as completed_at,
-              l.crop_name, l.grade, l.location as pickup_location
+      `SELECT j.job_id, j.job_id as "jobId", j.order_id, j.order_id as "orderId",
+              j.distance_km, j.distance_km as "distanceKm",
+              j.payout, j.payout as amount,
+              j.updated_at as completed_at, j.updated_at as "completedAt",
+              l.crop_name, l.crop_name as "cropName", l.grade, l.location as pickup_location,
+              f.username as farmer_name, f.username as "farmerName",
+              b.username as buyer_name, b.username as "buyerName"
        FROM jobs j
        JOIN orders o ON j.order_id = o.order_id
        JOIN listings l ON o.listings_id = l.listing_id
+       JOIN users f ON l.user_id = f.user_id
+       JOIN users b ON o.buyer_id = b.user_id
        WHERE j.transporter_id = $1 AND j.status = 'delivered'
        ORDER BY j.updated_at DESC`,
       [transporterId]
@@ -570,8 +593,6 @@ exports.getAnalytics = async (req, res) => {
     );
 
     // 2. Average delivery time in hours (from pickup to delivery)
-    // We calculate this using update timestamps or history logs.
-    // Let's check updated_at (which holds delivery timestamp) minus created_at (or simple mock value if empty)
     const deliveryTimes = await pool.query(
       `SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 3600)::DECIMAL(10,2) as avg_hours_to_delivery
        FROM jobs
@@ -585,12 +606,38 @@ exports.getAnalytics = async (req, res) => {
       [transporterId]
     );
 
+    // 4. Available jobs count
+    const availJobsCount = await pool.query(
+      "SELECT COUNT(*) FROM jobs WHERE status = 'available'"
+    );
+
+    // 5. Active deliveries count for transporter
+    const activeDelivCount = await pool.query(
+      "SELECT COUNT(*) FROM jobs WHERE transporter_id = $1 AND status IN ('assigned', 'picked_up')",
+      [transporterId]
+    );
+
+    // 6. Transporter wallet balance
+    const walletRes = await pool.query(
+      "SELECT balance, escrow_balance FROM wallets WHERE user_id = $1",
+      [transporterId]
+    );
+    const walletBalance = walletRes.rows.length > 0 ? parseFloat(walletRes.rows[0].balance) : 0.00;
+
+    const totalJobsCompleted = parseInt(jobsCount.rows[0].count) || 0;
+    const totalEarnings = parseFloat(revenueSum.rows[0].total_earnings) || 0.00;
+
     res.json({
-      total_jobs_completed: parseInt(jobsCount.rows[0].count),
-      total_earnings: parseFloat(revenueSum.rows[0].total_earnings) || 0.00,
+      total_jobs_completed: totalJobsCompleted,
+      totalJobsCompleted,
+      total_earnings: totalEarnings,
+      totalEarnings,
       average_delivery_hours: deliveryTimes.rows[0].avg_hours_to_delivery
         ? parseFloat(deliveryTimes.rows[0].avg_hours_to_delivery)
-        : "N/A"
+        : "N/A",
+      availableJobs: parseInt(availJobsCount.rows[0].count) || 0,
+      activeDeliveries: parseInt(activeDelivCount.rows[0].count) || 0,
+      settledBalance: walletBalance,
     });
   } catch (err) {
     console.error("❌ Error fetching transporter analytics:", err.message);

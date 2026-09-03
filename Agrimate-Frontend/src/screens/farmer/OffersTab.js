@@ -1,4 +1,3 @@
-// src/screens/farmer/OffersTab.js
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -11,8 +10,9 @@ import {
   Modal,
   Platform,
 } from 'react-native';
+import { TextInput } from 'react-native-paper';
 import { api, registerCacheReset } from '../../services/api';
-import { Check, X, Box, QrCode } from 'lucide-react-native';
+import { Check, X, Box, QrCode, TrendingUp } from 'lucide-react-native';
 import QRCodeGenerator from '../../components/QRCodeGenerator';
 import { theme } from '../../theme/theme';
 
@@ -36,6 +36,13 @@ export default function OffersTab() {
   const [activeSegment, setActiveSegment] = useState('pending'); // pending, active_contracts
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [selectedOrderForQr, setSelectedOrderForQr] = useState(null);
+
+  // Bargain Modal State
+  const [bargainModalVisible, setBargainModalVisible] = useState(false);
+  const [selectedOfferForBargain, setSelectedOfferForBargain] = useState(null);
+  const [counterPriceInput, setCounterPriceInput] = useState('');
+  const [counterNoteInput, setCounterNoteInput] = useState('');
+  const [isBargainLoading, setIsBargainLoading] = useState(false);
 
   const setOffers = (updater) => {
     setOffersState(prev => {
@@ -139,6 +146,37 @@ export default function OffersTab() {
     }
   };
 
+  const handleOpenBargainModal = (item) => {
+    setSelectedOfferForBargain(item);
+    setCounterPriceInput(String(item.price || item.offered_price || ''));
+    setCounterNoteInput('');
+    setBargainModalVisible(true);
+  };
+
+  const handleSendCounterOffer = async () => {
+    const priceNum = parseFloat(counterPriceInput);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      Alert.alert('Validation Error', 'Please enter a valid positive counter price.');
+      return;
+    }
+
+    setIsBargainLoading(true);
+    try {
+      const orderId = selectedOfferForBargain.orderId || selectedOfferForBargain.id;
+      const updated = await api.counterFarmerOffer(orderId, priceNum, counterNoteInput);
+      setOffers(prev => prev.map(o => String(o.orderId || o.id) === String(orderId) ? { ...o, ...(updated || {}), status: 'countered', counter_price: priceNum, note: counterNoteInput } : o));
+      Alert.alert('Bargain Submitted', `Counter-offer of GH₵ ${priceNum.toFixed(2)}/unit sent to buyer.`);
+      setBargainModalVisible(false);
+      setCounterPriceInput('');
+      setCounterNoteInput('');
+    } catch (error) {
+      console.error('Counter offer error:', error);
+      Alert.alert('Bargain Error', error.message || 'Failed to send counter offer.');
+    } finally {
+      setIsBargainLoading(false);
+    }
+  };
+
   const handleFulfillOrder = async (id) => {
     setIsLoading(true);
     try {
@@ -202,7 +240,15 @@ export default function OffersTab() {
               onPress={() => handleAcceptOffer(item.orderId || item.id)}
             >
               <Check size={14} color="#FFFFFF" />
-              <Text style={styles.acceptBtnText}>Accept Bid</Text>
+              <Text style={styles.acceptBtnText}>Accept</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.actionBtn, styles.bargainBtn]} 
+              onPress={() => handleOpenBargainModal(item)}
+            >
+              <TrendingUp size={14} color="#D97706" />
+              <Text style={styles.bargainBtnText}>Bargain</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -212,6 +258,18 @@ export default function OffersTab() {
               <X size={14} color="#64748B" />
               <Text style={styles.rejectBtnText}>Decline</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {item.status === 'countered' && (
+          <View style={styles.counterBadgeRow}>
+            <View style={styles.counterBadge}>
+              <TrendingUp size={12} color="#D97706" style={{ marginRight: 4 }} />
+              <Text style={styles.counterBadgeText}>
+                Counter-Offer Sent: GH₵ {parseFloat(item.counter_price || item.counterPrice || item.price).toFixed(2)}/unit
+              </Text>
+            </View>
+            {item.note ? <Text style={styles.counterNoteText}>Note: "{item.note}"</Text> : null}
           </View>
         )}
 
@@ -474,6 +532,64 @@ export default function OffersTab() {
             >
               <Text style={styles.closeModalBtnText}>Close QR Code</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bargain Modal */}
+      <Modal
+        visible={bargainModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setBargainModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.bargainModalContent}>
+            <Text style={styles.modalTitle}>Bargain / Counter Offer</Text>
+            <Text style={styles.modalDesc}>
+              Propose a new price per unit to negotiating buyer "{selectedOfferForBargain?.buyer_name || selectedOfferForBargain?.buyerName || 'Buyer'}".
+            </Text>
+
+            <TextInput
+              label="Counter Price (GH₵ per unit)"
+              mode="outlined"
+              keyboardType="numeric"
+              value={counterPriceInput}
+              onChangeText={setCounterPriceInput}
+              style={styles.modalInput}
+              activeOutlineColor="#12372A"
+            />
+
+            <TextInput
+              label="Negotiation Note (Optional)"
+              placeholder="e.g., Price is firm due to premium grade"
+              mode="outlined"
+              value={counterNoteInput}
+              onChangeText={setCounterNoteInput}
+              style={styles.modalInput}
+              activeOutlineColor="#12372A"
+            />
+
+            <View style={styles.bargainModalBtnRow}>
+              <TouchableOpacity 
+                style={styles.modalCancelBtn}
+                onPress={() => setBargainModalVisible(false)}
+              >
+                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.modalSubmitBtn, isBargainLoading && { opacity: 0.7 }]}
+                disabled={isBargainLoading}
+                onPress={handleSendCounterOffer}
+              >
+                {isBargainLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.modalSubmitBtnText}>Send Counter</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -789,5 +905,85 @@ const styles = StyleSheet.create({
   },
   map: {
     ...StyleSheet.absoluteFillObject,
+  },
+  bargainBtn: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  bargainBtnText: {
+    color: '#D97706',
+    fontWeight: '700',
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  counterBadgeRow: {
+    marginTop: theme.spacing.sm,
+    backgroundColor: '#FFFBEB',
+    padding: theme.spacing.sm,
+    borderRadius: theme.roundness.medium,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  counterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  counterBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#D97706',
+  },
+  counterNoteText: {
+    fontSize: 11,
+    color: '#92400E',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  bargainModalContent: {
+    width: '90%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: theme.roundness.large,
+    padding: theme.spacing.lg,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+  },
+  modalInput: {
+    marginBottom: theme.spacing.md,
+    backgroundColor: '#FFFFFF',
+  },
+  bargainModalBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: theme.spacing.sm,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: theme.roundness.medium,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+  },
+  modalCancelBtnText: {
+    color: '#64748B',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  modalSubmitBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: theme.roundness.medium,
+    backgroundColor: '#12372A',
+    alignItems: 'center',
+  },
+  modalSubmitBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
   },
 });

@@ -12,7 +12,7 @@ import { Card } from 'react-native-paper';
 import { api } from '../../services/api';
 import { BarChart3, TrendingUp, Wallet, Archive, PieChart } from 'lucide-react-native';
 
-export default function AnalyticsTab() {
+export default function AnalyticsTab({ isActive }) {
   const [analytics, setAnalytics] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -32,6 +32,12 @@ export default function AnalyticsTab() {
   useEffect(() => {
     loadAnalytics();
   }, []);
+
+  useEffect(() => {
+    if (isActive) {
+      loadAnalytics();
+    }
+  }, [isActive]);
 
   if (isLoading) {
     return (

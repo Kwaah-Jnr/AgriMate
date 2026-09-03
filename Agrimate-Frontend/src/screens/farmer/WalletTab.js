@@ -16,7 +16,7 @@ import { api } from '../../services/api';
 import { Wallet, Lock, ArrowUpRight, ArrowDownLeft, X, RefreshCw } from 'lucide-react-native';
 import { theme } from '../../theme/theme';
 
-export default function WalletTab() {
+export default function WalletTab({ isActive }) {
   const [balance, setBalance] = useState({ settled: 0, escrow: 0 });
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,6 +44,12 @@ export default function WalletTab() {
   useEffect(() => {
     fetchWallet();
   }, []);
+
+  useEffect(() => {
+    if (isActive) {
+      fetchWallet();
+    }
+  }, [isActive]);
 
   const handleWithdraw = async () => {
     if (!amount.trim() || !momoNumber.trim()) {

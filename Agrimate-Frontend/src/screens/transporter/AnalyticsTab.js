@@ -10,7 +10,7 @@ import {
 import { api } from '../../services/api';
 import { Truck, TrendingUp, BarChart3, Clock, DollarSign } from 'lucide-react-native';
 
-export default function AnalyticsTab() {
+export default function AnalyticsTab({ isActive }) {
   const [metrics, setMetrics] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -29,6 +29,12 @@ export default function AnalyticsTab() {
   useEffect(() => {
     loadAnalytics();
   }, []);
+
+  useEffect(() => {
+    if (isActive) {
+      loadAnalytics();
+    }
+  }, [isActive]);
 
   if (isLoading && !metrics) {
     return (

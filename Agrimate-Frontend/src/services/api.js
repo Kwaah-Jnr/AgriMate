@@ -265,6 +265,15 @@ export const api = {
     return handleResponse(response);
   },
 
+  counterFarmerOffer: async (id, counterPrice, note) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/offers/${id}/counter`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ counter_price: counterPrice, note }),
+    });
+    return handleResponse(response);
+  },
+
   fulfillOrder: async (id) => {
     const response = await fetchWithTimeout(`${BASE_URL}/api/farmer/orders/${id}/fulfill`, {
       method: 'POST',
@@ -400,6 +409,24 @@ export const api = {
     return handleResponse(response);
   },
 
+  acceptBuyerCounterOffer: async (id) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/offers/${id}/accept-counter`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({}),
+    });
+    return handleResponse(response);
+  },
+
+  declineBuyerCounterOffer: async (id) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/offers/${id}/decline-counter`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({}),
+    });
+    return handleResponse(response);
+  },
+
   // --- Buyer Orders ---
   fetchBuyerOrders: async () => {
     const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/orders`, {
@@ -433,6 +460,15 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(toSnake({ amount, momoNumber, provider })),
+    });
+    return handleResponse(response);
+  },
+
+  withdrawBuyerWallet: async (amount, phone, provider) => {
+    const response = await fetchWithTimeout(`${BASE_URL}/api/buyer/wallet/withdraw`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(toSnake({ amount, phone, provider })),
     });
     return handleResponse(response);
   },

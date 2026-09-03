@@ -12,7 +12,7 @@ import {
 import { api } from '../../services/api';
 import { DollarSign, BarChart3, Clock, CheckCircle2, TrendingUp, RefreshCw } from 'lucide-react-native';
 
-export default function AnalyticsTab() {
+export default function AnalyticsTab({ isActive }) {
   const [metrics, setMetrics] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -33,6 +33,12 @@ export default function AnalyticsTab() {
     fetchAnalytics();
   }, []);
 
+  useEffect(() => {
+    if (isActive) {
+      fetchAnalytics();
+    }
+  }, [isActive]);
+
   if (isLoading && !metrics) {
     return (
       <View style={styles.loaderContainer}>
@@ -41,9 +47,11 @@ export default function AnalyticsTab() {
     );
   }
 
-  // Calculate listing conversion rate
-  const conversionRate = metrics && metrics.totalListings > 0
-    ? Math.round((metrics.soldListings / metrics.totalListings) * 100)
+  // Calculate listing conversion rate safely
+  const totalListings = Number(metrics?.totalListings ?? metrics?.total_listings ?? 0);
+  const soldListings = Number(metrics?.soldListings ?? metrics?.sold_listings ?? 0);
+  const conversionRate = totalListings > 0
+    ? Math.round((soldListings / totalListings) * 100)
     : 0;
 
   return (

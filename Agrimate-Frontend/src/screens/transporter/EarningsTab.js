@@ -1,4 +1,3 @@
-// src/screens/transporter/EarningsTab.js
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -8,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   TouchableOpacity,
+  RefreshControl,
 } from 'react-native';
 import { Card } from 'react-native-paper';
 import { api } from '../../services/api';
@@ -17,16 +17,22 @@ import { theme } from '../../theme/theme';
 export default function EarningsTab() {
   const [earnings, setEarnings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const loadEarnings = async () => {
-    setIsLoading(true);
+  const loadEarnings = async (showRefIndicator = false) => {
+    if (showRefIndicator) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
     try {
       const data = await api.fetchTransporterEarnings();
-      setEarnings(data);
+      setEarnings(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('Error fetching transporter earnings:', error);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -34,38 +40,47 @@ export default function EarningsTab() {
     loadEarnings();
   }, []);
 
-  const renderEarningCard = ({ item }) => (
-    <Card style={styles.card}>
-      <Card.Content>
-        <View style={styles.cardHeader}>
-          <View style={styles.cropInfo}>
-            <Text style={styles.cropName}>{item.cropName}</Text>
-            <Text style={styles.orderId}>Order #{item.orderId}</Text>
-          </View>
-          {/* B4 fix: guard against null amount to prevent TypeError */}
-          <Text style={styles.amount}>+GH₵ {(parseFloat(item.amount) || 0).toFixed(2)}</Text>
-        </View>
+  const renderEarningCard = ({ item }) => {
+    const cropName = item.cropName || item.crop_name || 'Crop Delivery';
+    const orderId = item.orderId || item.order_id || item.jobId || item.job_id || 'N/A';
+    const amountVal = parseFloat(item.amount) || parseFloat(item.payout) || 0;
+    const farmerName = item.farmerName || item.farmer_name || item.pickup_location || 'Farmer';
+    const buyerName = item.buyerName || item.buyer_name || 'Destination';
+    const rawDate = item.completedAt || item.completed_at;
+    const dateStr = rawDate ? new Date(rawDate).toLocaleDateString() : 'Completed';
 
-        <View style={styles.routeSection}>
-          <View style={styles.routeRow}>
-            <MapPin size={12} color="#64748B" style={{ marginRight: 6 }} />
-            <Text style={styles.routeText}>Pickup: {item.farmerName}</Text>
+    return (
+      <Card style={styles.card}>
+        <Card.Content>
+          <View style={styles.cardHeader}>
+            <View style={styles.cropInfo}>
+              <Text style={styles.cropName}>{cropName}</Text>
+              <Text style={styles.orderId}>Order #{orderId}</Text>
+            </View>
+            <Text style={styles.amount}>+GH₵ {amountVal.toFixed(2)}</Text>
           </View>
-          <View style={styles.routeRow}>
-            <Navigation size={12} color="#64748B" style={{ marginRight: 6 }} />
-            <Text style={styles.routeText}>Delivery: {item.buyerName}</Text>
+
+          <View style={styles.routeSection}>
+            <View style={styles.routeRow}>
+              <MapPin size={12} color="#64748B" style={{ marginRight: 6 }} />
+              <Text style={styles.routeText}>Pickup: {farmerName}</Text>
+            </View>
+            <View style={styles.routeRow}>
+              <Navigation size={12} color="#64748B" style={{ marginRight: 6 }} />
+              <Text style={styles.routeText}>Delivery: {buyerName}</Text>
+            </View>
           </View>
-        </View>
 
-        <View style={styles.dateRow}>
-          <Calendar size={12} color="#94A3B8" style={{ marginRight: 4 }} />
-          <Text style={styles.dateText}>Completed: {new Date(item.completedAt).toLocaleDateString()}</Text>
-        </View>
-      </Card.Content>
-    </Card>
-  );
+          <View style={styles.dateRow}>
+            <Calendar size={12} color="#94A3B8" style={{ marginRight: 4 }} />
+            <Text style={styles.dateText}>Completed: {dateStr}</Text>
+          </View>
+        </Card.Content>
+      </Card>
+    );
+  };
 
-  if (isLoading) {
+  if (isLoading && !isRefreshing) {
     return (
       <View style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#12372A" />
@@ -73,8 +88,10 @@ export default function EarningsTab() {
     );
   }
 
-  // B4 fix: guard each item.amount in case backend returns null
-  const totalPayout = earnings.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+  const totalPayout = earnings.reduce((sum, item) => {
+    const amt = parseFloat(item.amount) || parseFloat(item.payout) || 0;
+    return sum + amt;
+  }, 0);
 
   return (
     <View style={styles.container}>
@@ -95,7 +112,7 @@ export default function EarningsTab() {
         <View style={styles.emptyContainer}>
           <Wallet size={48} color="#CBD5E1" />
           <Text style={styles.emptyText}>No delivery earnings statements found.</Text>
-          <TouchableOpacity style={styles.refreshBtn} onPress={loadEarnings}>
+          <TouchableOpacity style={styles.refreshBtn} onPress={() => loadEarnings(true)}>
             <Text style={styles.refreshBtnText}>Pull to Refresh</Text>
           </TouchableOpacity>
         </View>
@@ -106,6 +123,13 @@ export default function EarningsTab() {
           keyExtractor={(item, index) => String(item.id || item.jobId || item.job_id || item.transactionId || item.transaction_id || index)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={() => loadEarnings(true)}
+              colors={['#12372A']}
+            />
+          }
         />
       )}
     </View>
